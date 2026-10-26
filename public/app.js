@@ -48,19 +48,31 @@ $('#login-form').addEventListener('submit',async event=>{
  try{await api('/api/session',{method:'POST',body:{password:$('#login-password').value}});$('#login-password').value='';await init()}
  catch(error){$('#login-error').textContent=error.message;$('#login-error').hidden=false}
 })
+$('.brand').addEventListener('click',event=>{event.preventDefault();setView('map')})
 $('#logout').addEventListener('click',async()=>{await api('/api/session',{method:'DELETE'});showLogin()})
 
 // --- navegação ----------------------------------------------------------------
 $$('.tabs button').forEach(button=>button.addEventListener('click',()=>setView(button.dataset.view)))
-function setView(view){
+const views=['map','producers','decision','tracking','presentation']
+function setView(view,{fromHash=false}={}){
+ if(!views.includes(view))view='map'
  state.view=view
  $$('.tabs button').forEach(button=>button.classList.toggle('active',button.dataset.view===view))
  $$('.view').forEach(section=>section.classList.toggle('active',section.id===`view-${view}`))
- location.hash=view
+ if(!fromHash&&location.hash!==`#${view}`)history.pushState(null,'',`#${view}`)
+ closeModal()
  render()
  if(view==='map')setTimeout(()=>state.map?.invalidateSize(),30)
+ if(view==='presentation')setTimeout(()=>state.prMap?.invalidateSize(),30)
+ window.scrollTo({top:0})
 }
-if(['map','producers','decision','tracking','presentation'].includes(location.hash.slice(1)))state.view=location.hash.slice(1)
+// Voltar e avançar do navegador trocam a seção pelo hash da URL.
+window.addEventListener('hashchange',()=>setView(location.hash.slice(1)||'map',{fromHash:true}))
+window.addEventListener('popstate',()=>setView(location.hash.slice(1)||'map',{fromHash:true}))
+window.addEventListener('resize',()=>{state.map?.invalidateSize();state.prMap?.invalidateSize()})
+window.addEventListener('error',event=>{console.error(event.error||event.message);toast('Algo falhou nesta tela. Recarregue a página se o problema continuar.',true)})
+window.addEventListener('unhandledrejection',event=>{console.error(event.reason);if(event.reason?.message&&!/Sessão expirada/.test(event.reason.message))toast(event.reason.message,true)})
+if(views.includes(location.hash.slice(1)))state.view=location.hash.slice(1)
 
 // --- filtros -----------------------------------------------------------------
 const filters=()=>({search:$('#f-search').value.trim().toLowerCase(),culture:$('#f-culture').value,uf:$('#f-uf').value,region:$('#f-region').value,relationship:$('#f-relationship').value,priority:$('#f-priority').value})
@@ -93,6 +105,9 @@ $('#f-clear').addEventListener('click',()=>{['#f-search','#f-culture','#f-uf','#
 function ensureMap(){
  if(state.map)return
  state.map=L.map('map',{zoomControl:true}).setView([-15.8,-52],4)
+ state.muniLayer=L.layerGroup().addTo(state.map)
+ state.layer=L.layerGroup().addTo(state.map)
+ state.planLayer=L.layerGroup().addTo(state.map)
  const streets=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'})
  const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagens &copy; Esri, Maxar, Earthstar Geographics e comunidade GIS'})
  const labels=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,pane:'overlayPane',opacity:.95})
@@ -100,10 +115,9 @@ function ensureMap(){
  const baseLayers={'Mapa':streets,'Satélite':imagery,'Satélite com nomes':hybrid}
  let saved='Mapa';try{saved=localStorage.getItem('val-mapa-base')||'Mapa'}catch{}
  ;(baseLayers[saved]||streets).addTo(state.map)
- L.control.layers(baseLayers,null,{position:'topright',collapsed:false}).addTo(state.map)
+ L.control.layers(baseLayers,{'Limites municipais':state.muniLayer,'Produtores':state.layer},{position:'topright',collapsed:false}).addTo(state.map)
+ state.map.on('overlayadd',event=>{if(event.layer===state.muniLayer)renderMunicipalities()})
  state.map.on('baselayerchange',event=>{try{localStorage.setItem('val-mapa-base',event.name)}catch{}})
- state.layer=L.layerGroup().addTo(state.map)
- state.planLayer=L.layerGroup().addTo(state.map)
  state.map.on('click',event=>{if(state.plan.active){state.plan.center=event.latlng;renderPlan()}})
 }
 function renderMap(){
@@ -134,8 +148,15 @@ function renderMap(){
   }
  }
  $('#map-count').textContent=`${items.length} de ${state.data.producers.length} produtores no mapa.`
+ renderMunicipalities()
  if(bounds.length&&!renderMap.fitted){state.map.fitBounds(bounds,{padding:[40,40],maxZoom:9});renderMap.fitted=true}
  renderPlan()
+}
+function renderMunicipalities(){
+ if(!state.map||!state.map.hasLayer(state.muniLayer))return
+ const visible=filteredScored()
+ const ufs=[...new Set(visible.map(item=>item.uf).filter(Boolean))]
+ paintMunicipalities({layer:state.muniLayer,scored:visible,ufs,statusEl:$('#muni-status'),tokenKey:'mapMeshToken',outlineOnly:true})
 }
 $('#plan-toggle').addEventListener('change',event=>{state.plan.active=event.target.checked;$('#plan-radius-field').hidden=!state.plan.active;$('#plan-hint').textContent=state.plan.active?'Clique no mapa para definir o centro. Arraste o raio para ampliar.':'Ative e clique no mapa para definir o centro da visita.';if(!state.plan.active){state.plan.center=null}renderPlan()})
 $('#plan-radius').addEventListener('input',event=>{state.plan.radiusKm=Number(event.target.value);$('#plan-radius-label').textContent=state.plan.radiusKm;renderPlan()})
@@ -155,7 +176,7 @@ async function renderPlan(){
    <ol>${items.slice(0,25).map(item=>`<li><a href="#" data-detail="${item.producerId}">${esc(item.name)}</a> — ${esc(item.municipality)} · ${item.distanceKm} km · <span class="badge ${item.priority.level}">${item.score}</span></li>`).join('')}</ol>`
  }catch(error){box.hidden=false;box.textContent=error.message}
 }
-document.addEventListener('click',event=>{const link=event.target.closest('[data-detail]');if(link){event.preventDefault();showDetail(link.dataset.detail);if(state.view!=='map')setView('map')}})
+document.addEventListener('click',event=>{const link=event.target.closest('[data-detail]');if(link){event.preventDefault();if(state.view!=='map')setView('map');setTimeout(()=>showDetail(link.dataset.detail),state.view==='map'?0:80)}})
 
 function scoreRing(score,level){return `<div class="score-ring" style="background:${priorityColor[level]}">${score}</div>`}
 function showDetail(producerId){
@@ -596,10 +617,37 @@ function presentationSubset(){
  const labelsActive=[f.uf&&`UF ${f.uf}`,f.region&&`região ${f.region}`,f.municipality&&`município ${f.municipality}`,f.culture&&(labels.commodities[f.culture]||f.culture),f.consultant&&`consultor ${f.consultant}`,f.priority&&{high:'prioridade alta',medium:'validar',watch:'monitorar',incomplete:'completar dados'}[f.priority],f.season&&`safra ${f.season}`].filter(Boolean)
  return {ids,labelsActive}
 }
-const municipalitySlug=value=>String(value??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+const municipalitySlug=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 const meshCache={}
 const loadMesh=uf=>meshCache[uf]||(meshCache[uf]=api(`/api/malhas/${encodeURIComponent(uf)}`).catch(error=>{delete meshCache[uf];throw error}))
 const choropleth=['#e6f4ee','#b9e3d1','#7fcbae','#3fae88','#0f8a66','#0e3530']
+// Desenha os limites municipais nas UFs presentes e pinta os municípios que têm produtores pelo potencial.
+function paintMunicipalities({layer,scored,ufs,statusEl,tokenKey,onPick,outlineOnly=false}){
+ layer.clearLayers()
+ const byMunicipality=new Map()
+ for(const s of scored){const key=`${s.uf||''}|${municipalitySlug(s.municipality)}`;const m=byMunicipality.get(key)||{name:s.municipality,producers:0,volume:0,high:0};m.producers++;m.volume+=s.potentialVolumeT||0;m.high+=s.priority.level==='high'?1:0;byMunicipality.set(key,m)}
+ const volumes=[...byMunicipality.values()].map(m=>m.volume).filter(v=>v>0).sort((a,b)=>a-b)
+ const bucket=volume=>{if(!volume||!volumes.length)return 0;const rank=volumes.filter(v=>v<=volume).length/volumes.length;return Math.min(choropleth.length-1,Math.floor(rank*(choropleth.length-1)))}
+ const token=(state[tokenKey]=(state[tokenKey]||0)+1)
+ if(statusEl)statusEl.textContent=ufs.length?'Carregando limites municipais…':''
+ if(!ufs.length)return
+ Promise.all(ufs.map(uf=>loadMesh(uf).then(mesh=>({uf,mesh})).catch(error=>({uf,error:error.message})))).then(results=>{
+  if(token!==state[tokenKey])return
+  let painted=0
+  for(const result of results.filter(r=>r.mesh)){
+   L.geoJSON(result.mesh,{
+    style:feature=>{const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`);if(data)painted++;return data?{color:'#0e3530',weight:1.3,fillColor:outlineOnly?'#00c896':choropleth[bucket(data.volume)],fillOpacity:outlineOnly?.12:.55}:{color:'#4f6660',weight:.7,opacity:.75,fillOpacity:0}},
+    onEachFeature:(feature,polygon)=>{
+     const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`)
+     polygon.bindTooltip(data?`<span class="marker-tip">${esc(feature.properties.name)}/${result.uf}</span><br>${data.producers} produtor${data.producers===1?'':'es'} · ${fmt(data.volume)} t (${fmtSc(data.volume)})${data.high?` · ${data.high} em prioridade alta`:''}`:`${esc(feature.properties.name)}/${result.uf}`,{sticky:true})
+     if(data&&onPick)polygon.on('click',()=>onPick(feature.properties,result.uf))
+    }
+   }).addTo(layer)
+  }
+  const failures=results.filter(r=>r.error)
+  if(statusEl)statusEl.textContent=[results.some(r=>r.mesh)?`Limites municipais (IBGE) · ${painted} município${painted===1?'':'s'} com produtores.${onPick?' Clique em um município para filtrar.':''}`:'',failures.length?`Limites indisponíveis para ${failures.map(f=>f.uf).join(', ')}: ${failures[0].error}`:''].filter(Boolean).join(' ')
+ })
+}
 function renderPresentationMap(scored,producers){
  if(!state.prMap){
   state.prMap=L.map('pr-map',{zoomControl:true,scrollWheelZoom:false}).setView([-15.8,-52],4)
@@ -619,30 +667,7 @@ function renderPresentationMap(scored,producers){
    .bindTooltip(`<span class="marker-tip">${esc(item.name)}</span><br>${esc(item.municipality)}/${esc(item.uf||'')} · ${fmt(item.potentialVolumeT)} t (${fmtSc(item.potentialVolumeT)}) · score ${item.score}`,{direction:'top'}).addTo(state.prLayer)
  }
  setTimeout(()=>{state.prMap.invalidateSize();if(items.length)state.prMap.fitBounds(items.map(s=>[s.lat,s.lng]),{padding:[30,30],maxZoom:10})},60)
- // Limites municipais (IBGE) pintados pelo potencial dos produtores filtrados em cada município.
- const byMunicipality=new Map()
- for(const s of scored){const key=`${s.uf||''}|${municipalitySlug(s.municipality)}`;const m=byMunicipality.get(key)||{name:s.municipality,producers:0,volume:0,high:0};m.producers++;m.volume+=s.potentialVolumeT||0;m.high+=s.priority.level==='high'?1:0;byMunicipality.set(key,m)}
- const volumes=[...byMunicipality.values()].map(m=>m.volume).filter(v=>v>0).sort((a,b)=>a-b)
- const bucket=volume=>{if(!volume||!volumes.length)return -1;const rank=volumes.filter(v=>v<=volume).length/volumes.length;return Math.min(choropleth.length-1,Math.floor(rank*(choropleth.length-1)))}
- const ufs=[...new Set(producers.map(p=>p.uf).filter(Boolean))]
- const token=(state.prMeshToken=(state.prMeshToken||0)+1)
- const status=$('#pr-map-status');if(status)status.textContent=ufs.length?'Carregando limites municipais do IBGE…':''
- Promise.all(ufs.map(uf=>loadMesh(uf).then(mesh=>({uf,mesh})).catch(error=>({uf,error:error.message})))).then(results=>{
-  if(token!==state.prMeshToken)return
-  let painted=0
-  const failures=results.filter(r=>r.error)
-  for(const result of results.filter(r=>r.mesh)){
-   L.geoJSON(result.mesh,{
-    style:feature=>{const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`);const b=data?bucket(data.volume):-1;if(data)painted++;return data?{color:'#0e3530',weight:1.2,fillColor:choropleth[Math.max(0,b)],fillOpacity:.55}:{color:'#6c7f78',weight:.6,opacity:.7,fillOpacity:0}},
-    onEachFeature:(feature,layer)=>{
-     const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`)
-     layer.bindTooltip(data?`<span class="marker-tip">${esc(feature.properties.name)}/${result.uf}</span><br>${data.producers} produtor${data.producers===1?'':'es'} · ${fmt(data.volume)} t (${fmtSc(data.volume)})${data.high?` · ${data.high} em prioridade alta`:''}`:`${esc(feature.properties.name)}/${result.uf}`,{sticky:true})
-     if(data)layer.on('click',()=>{const select=$('#prf-municipality');const option=[...select.options].find(o=>municipalitySlug(o.value)===feature.properties.slug);if(option){select.value=option.value;renderPresentation()}})
-    }
-   }).addTo(state.prMuniLayer)
-  }
-  if(status)status.textContent=[results.some(r=>r.mesh)?`Limites municipais do IBGE · ${painted} município${painted===1?'':'s'} com produtores. Clique em um município para filtrar.`:'',failures.length?`Limites indisponíveis para ${failures.map(f=>f.uf).join(', ')}: ${failures[0].error}`:''].filter(Boolean).join(' ')
- })
+ paintMunicipalities({layer:state.prMuniLayer,scored,ufs:[...new Set(producers.map(p=>p.uf).filter(Boolean))],statusEl:$('#pr-map-status'),tokenKey:'prMeshToken',onPick:props=>{const select=$('#prf-municipality');const option=[...select.options].find(o=>municipalitySlug(o.value)===props.slug);if(option){select.value=option.value;renderPresentation()}}})
 }
 $('#pr-copy').addEventListener('click',async()=>{
  const {ids,labelsActive}=presentationSubset();const agg=aggregates(ids);const {summary,scored}=agg

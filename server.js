@@ -173,7 +173,7 @@ async function api(request,response,url){
  }
  if(resource==='malhas'&&method==='GET'){
   try{
-   const data=await municipalityMesh(id,{dataDir:path.join(root,'.data')})
+   const data=await municipalityMesh(id,{dataDir:path.join(root,'.data'),bundledDir:path.join(root,'data','malhas')})
    return json(response,200,data,{'Cache-Control':'private, max-age=86400'})
   }catch(error){console.error(`Malha municipal ${id}:`,error.message);throw error.statusCode?error:domainError(`Falha ao obter a malha do IBGE: ${error.message}`,502)}
  }
