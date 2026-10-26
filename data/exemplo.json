@@ -1,0 +1,54 @@
+{
+ "note": "Dados fictícios apenas para demonstração do VAL Mapa. Nenhum produtor real.",
+ "producers": [
+  {"key":"p1","name":"Fazenda Santa Luzia (exemplo)","municipality":"Santo Ângelo","uf":"RS","lat":-28.2992,"lng":-54.2632,"areaHa":850,"cultures":"soja, trigo","storageCapacityT":1800,"estimatedVolumeT":2700,"relationship":"active","consultant":"Ana","lastContactAt":"2026-10-20"},
+  {"key":"p2","name":"Sítio Boa Esperança (exemplo)","municipality":"Cruz Alta","uf":"RS","lat":-28.6387,"lng":-53.6063,"areaHa":320,"cultures":"soja, milho","estimatedVolumeT":1000,"relationship":"contact","consultant":"Ana","lastContactAt":"2026-09-02"},
+  {"key":"p3","name":"Granja Horizonte (exemplo)","municipality":"Ijuí","uf":"RS","lat":-28.3878,"lng":-53.9149,"areaHa":1200,"cultures":"soja, milho, trigo","storageCapacityT":3000,"estimatedVolumeT":3900,"relationship":"partner","consultant":"Bruno","lastContactAt":"2026-10-24"},
+  {"key":"p4","name":"Agropecuária Três Pinheiros (exemplo)","municipality":"Passo Fundo","uf":"RS","lat":-28.2628,"lng":-52.4067,"areaHa":600,"cultures":"soja, cevada","estimatedVolumeT":1900,"relationship":"active","consultant":"Bruno","lastContactAt":"2026-08-10"},
+  {"key":"p5","name":"Fazenda Rio Verde (exemplo)","municipality":"Cascavel","uf":"PR","lat":-24.9555,"lng":-53.4552,"areaHa":2100,"cultures":"soja, milho","storageCapacityT":5000,"estimatedVolumeT":7000,"relationship":"prospect","consultant":"Carla","lastContactAt":"2026-10-15"},
+  {"key":"p6","name":"Chácara Primavera (exemplo)","municipality":"Toledo","uf":"PR","lat":-24.7139,"lng":-53.7431,"areaHa":180,"cultures":"milho, pecuária","estimatedVolumeT":500,"relationship":"contact","consultant":"Carla","lastContactAt":"2026-10-01"},
+  {"key":"p7","name":"Fazenda Campo Largo (exemplo)","municipality":"Ponta Grossa","uf":"PR","lat":-25.0916,"lng":-50.1668,"areaHa":950,"cultures":"soja, trigo, feijão","storageCapacityT":1200,"estimatedVolumeT":2800,"relationship":"active","consultant":"Carla","lastContactAt":"2026-07-18"},
+  {"key":"p8","name":"Grupo Serra Dourada (exemplo)","municipality":"Sorriso","uf":"MT","lat":-12.5425,"lng":-55.7211,"areaHa":6500,"cultures":"soja, milho, algodão","storageCapacityT":20000,"estimatedVolumeT":24000,"relationship":"prospect","consultant":"Diego"},
+  {"key":"p9","name":"Fazenda Nova Aurora (exemplo)","municipality":"Lucas do Rio Verde","uf":"MT","lat":-13.0587,"lng":-55.9116,"areaHa":3800,"cultures":"soja, milho","storageCapacityT":9000,"estimatedVolumeT":13000,"relationship":"active","consultant":"Diego","lastContactAt":"2026-10-22"},
+  {"key":"p10","name":"Estância Mato Grande (exemplo)","municipality":"Rondonópolis","uf":"MT","lat":-16.4706,"lng":-54.6356,"areaHa":2400,"cultures":"soja, algodão","estimatedVolumeT":8000,"relationship":"inactive","consultant":"Diego","lastContactAt":"2026-03-05"},
+  {"key":"p11","name":"Sítio Recanto Verde (exemplo)","municipality":"Chapecó","uf":"SC","lat":-27.1004,"lng":-52.6152,"areaHa":140,"cultures":"milho, pecuária","estimatedVolumeT":400,"relationship":"active","consultant":"Ana","lastContactAt":"2026-10-12"},
+  {"key":"p12","name":"Fazenda Alto da Serra (exemplo)","municipality":"Rio Verde","uf":"GO","lat":-17.7923,"lng":-50.9192,"areaHa":2900,"cultures":"soja, milho, sorgo","storageCapacityT":6000,"estimatedVolumeT":9500,"relationship":"contact","consultant":"Eduardo","lastContactAt":"2026-09-28"},
+  {"key":"p13","name":"Fazenda Barra Funda (exemplo)","municipality":"Uberlândia","uf":"MG","lat":-18.9186,"lng":-48.2772,"areaHa":1100,"cultures":"soja, café","estimatedVolumeT":3000,"relationship":"prospect","consultant":"Eduardo"},
+  {"key":"p14","name":"Cooperado Vale do Jacuí (exemplo)","municipality":"Cachoeira do Sul","uf":"RS","lat":-30.0392,"lng":-52.8939,"areaHa":260,"cultures":"arroz, soja","estimatedVolumeT":1300,"relationship":"active","consultant":"Ana","lastContactAt":"2026-10-18"}
+ ],
+ "intents": [
+  {"producer":"p1","commodity":"soja","direction":"sell","volumeT":1200,"targetPrice":128,"priceUnit":"BRL/sc_60kg","deliveryInDays":20,"deliveryLocation":"Santo Ângelo","status":"confirmed","confidence":90,"observedDaysAgo":3},
+  {"producer":"p3","commodity":"milho","direction":"sell","volumeT":1500,"targetPrice":62,"priceUnit":"BRL/sc_60kg","deliveryInDays":10,"deliveryLocation":"Ijuí","status":"negotiating","confidence":95,"observedDaysAgo":1},
+  {"producer":"p4","commodity":"cevada","direction":"sell","volumeT":600,"targetPrice":1450,"priceUnit":"BRL/t","deliveryInDays":45,"deliveryLocation":"Passo Fundo","status":"monitoring","confidence":65,"observedDaysAgo":12},
+  {"producer":"p5","commodity":"soja","direction":"sell","volumeT":4000,"targetPrice":135,"priceUnit":"BRL/sc_60kg","deliveryInDays":60,"deliveryLocation":"Cascavel","status":"draft","confidence":40,"observedDaysAgo":8},
+  {"producer":"p7","commodity":"trigo","direction":"sell","volumeT":900,"targetPrice":1500,"priceUnit":"BRL/t","deliveryInDays":-5,"deliveryLocation":"Ponta Grossa","status":"confirmed","confidence":85,"observedDaysAgo":40},
+  {"producer":"p9","commodity":"soja","direction":"sell","volumeT":6000,"targetPrice":122,"priceUnit":"BRL/sc_60kg","deliveryInDays":25,"deliveryLocation":"Lucas do Rio Verde","status":"confirmed","confidence":88,"observedDaysAgo":2},
+  {"producer":"p12","commodity":"milho","direction":"sell","volumeT":3000,"targetPrice":58,"priceUnit":"BRL/sc_60kg","deliveryInDays":90,"deliveryLocation":"Rio Verde","status":"monitoring","confidence":70,"observedDaysAgo":6},
+  {"producer":"p14","commodity":"arroz","direction":"sell","volumeT":700,"targetPrice":95,"priceUnit":"BRL/sc_60kg","deliveryInDays":30,"deliveryLocation":"Cachoeira do Sul","status":"confirmed","confidence":82,"observedDaysAgo":4}
+ ],
+ "marketRefs": [
+  {"commodity":"soja","price":129.5,"priceUnit":"BRL/sc_60kg","region":"Santo Ângelo","sourceName":"Cooperativa local","observedDaysAgo":0.3},
+  {"commodity":"soja","price":124,"priceUnit":"BRL/sc_60kg","region":"Lucas do Rio Verde","sourceName":"Corretora regional","observedDaysAgo":0.5},
+  {"commodity":"milho","price":60,"priceUnit":"BRL/sc_60kg","region":"Ijuí","sourceName":"Cotação do dia","observedDaysAgo":0.2},
+  {"commodity":"cevada","price":1380,"priceUnit":"BRL/t","region":"Passo Fundo","sourceName":"Maltaria","observedDaysAgo":5},
+  {"commodity":"trigo","price":1420,"priceUnit":"BRL/t","region":"Ponta Grossa","sourceName":"Moinho","observedDaysAgo":9},
+  {"commodity":"arroz","price":97,"priceUnit":"BRL/sc_60kg","region":"Cachoeira do Sul","sourceName":"Engenho","observedDaysAgo":1}
+ ],
+ "interactions": [
+  {"producer":"p1","kind":"visit","daysAgo":6,"outcome":"positive","notes":"Visita de safra; produtor pediu proposta."},
+  {"producer":"p1","kind":"call","daysAgo":2,"outcome":"positive"},
+  {"producer":"p3","kind":"meeting","daysAgo":1,"outcome":"positive","notes":"Negociação de milho em andamento."},
+  {"producer":"p3","kind":"visit","daysAgo":25,"outcome":"neutral"},
+  {"producer":"p2","kind":"message","daysAgo":54,"outcome":"neutral"},
+  {"producer":"p5","kind":"visit","daysAgo":11,"outcome":"positive","notes":"Primeira visita; grande potencial."},
+  {"producer":"p6","kind":"call","daysAgo":25,"outcome":"neutral"},
+  {"producer":"p9","kind":"visit","daysAgo":4,"outcome":"positive"},
+  {"producer":"p9","kind":"call","daysAgo":35,"outcome":"positive"},
+  {"producer":"p11","kind":"visit","daysAgo":14,"outcome":"neutral"},
+  {"producer":"p12","kind":"meeting","daysAgo":28,"outcome":"positive"},
+  {"producer":"p14","kind":"visit","daysAgo":8,"outcome":"positive"},
+  {"producer":"p4","kind":"call","daysAgo":77,"outcome":"negative","notes":"Produtor adiou decisão."},
+  {"producer":"p7","kind":"visit","daysAgo":100,"outcome":"neutral"},
+  {"producer":"p13","kind":"message","daysAgo":62,"outcome":"neutral"}
+ ]
+}

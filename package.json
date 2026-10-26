@@ -1,0 +1,18 @@
+{
+  "name": "val-mapa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VAL Mapa — mapeamento geográfico de produtores, potencial e acompanhamento comercial.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "^8.22.0"
+  }
+}

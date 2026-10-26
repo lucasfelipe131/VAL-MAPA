@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VAL Mapa</title>
+<meta name="description" content="Mapeamento geográfico de produtores, potencial comercial e acompanhamento.">
+<meta name="theme-color" content="#071b19">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="app" class="app" hidden>
+ <header class="topbar">
+  <a class="brand" href="/" aria-label="VAL Mapa">
+   <img src="/val-logo.svg" alt="" class="brand-logo">
+   <span class="brand-text"><strong>VAL Mapa</strong><small>Produtores · potencial · decisão</small></span>
+  </a>
+  <nav class="tabs" role="tablist" aria-label="Seções">
+   <button role="tab" data-view="map" class="active">Mapa</button>
+   <button role="tab" data-view="producers">Produtores</button>
+   <button role="tab" data-view="decision">Decisão</button>
+   <button role="tab" data-view="tracking">Acompanhamento</button>
+   <button role="tab" data-view="presentation">Apresentação</button>
+  </nav>
+  <div class="topbar-actions">
+   <span id="storage-badge" class="badge muted" title="Onde os dados estão sendo salvos"></span>
+   <button id="logout" class="btn ghost small" hidden>Sair</button>
+  </div>
+ </header>
+
+ <main id="main">
+  <!-- MAPA -->
+  <section id="view-map" class="view active">
+   <aside class="map-panel">
+    <div class="panel-block">
+     <label class="field"><span>Buscar</span><input id="f-search" type="search" placeholder="Produtor, município, consultor"></label>
+     <div class="grid-2">
+      <label class="field"><span>Cultura</span><select id="f-culture"><option value="">Todas</option></select></label>
+      <label class="field"><span>UF</span><select id="f-uf"><option value="">Todas</option></select></label>
+      <label class="field"><span>Relacionamento</span><select id="f-relationship"><option value="">Todos</option></select></label>
+      <label class="field"><span>Prioridade</span><select id="f-priority"><option value="">Todas</option><option value="high">Prioridade alta</option><option value="medium">Validar</option><option value="watch">Monitorar</option><option value="incomplete">Completar dados</option></select></label>
+     </div>
+     <div class="row between">
+      <label class="toggle"><input id="f-by-municipality" type="checkbox"><span>Agrupar por município</span></label>
+      <button id="f-clear" class="btn ghost small">Limpar</button>
+     </div>
+    </div>
+    <div class="panel-block">
+     <div class="row between"><strong>Planejar rota</strong><label class="toggle"><input id="plan-toggle" type="checkbox"><span>Ativar</span></label></div>
+     <p class="hint" id="plan-hint">Ative e clique no mapa para definir o centro da visita.</p>
+     <label class="field" id="plan-radius-field" hidden><span>Raio: <b id="plan-radius-label">50</b> km</span><input id="plan-radius" type="range" min="5" max="400" step="5" value="50"></label>
+     <div id="plan-result" class="plan-result" hidden></div>
+    </div>
+    <div class="panel-block legend">
+     <strong>Legenda</strong>
+     <div class="legend-items">
+      <span><i style="background:var(--p-high)"></i>Prioridade alta (75+)</span>
+      <span><i style="background:var(--p-medium)"></i>Validar (55–74)</span>
+      <span><i style="background:var(--p-watch)"></i>Monitorar (35–54)</span>
+      <span><i style="background:var(--p-incomplete)"></i>Completar dados</span>
+     </div>
+     <p class="hint">O tamanho do ponto acompanha o volume potencial. <span id="map-count"></span></p>
+    </div>
+   </aside>
+   <div id="map" class="map" role="region" aria-label="Mapa de produtores"></div>
+   <aside id="detail" class="detail" hidden></aside>
+  </section>
+
+  <!-- PRODUTORES -->
+  <section id="view-producers" class="view">
+   <div class="toolbar">
+    <h1>Produtores</h1>
+    <div class="toolbar-actions">
+     <input id="p-search" type="search" placeholder="Filtrar lista" aria-label="Filtrar produtores">
+     <button id="p-new" class="btn primary">Novo produtor</button>
+     <button id="p-import" class="btn">Importar CSV</button>
+     <a id="p-export" class="btn" href="/api/export.csv">Exportar CSV</a>
+     <button id="p-geocode" class="btn ghost">Localizar pendentes</button>
+     <button id="p-more" class="btn ghost" title="Mais opções">⋯</button>
+    </div>
+   </div>
+   <div id="p-more-menu" class="menu" hidden>
+    <button id="p-template">Baixar modelo CSV</button>
+    <button id="p-example">Carregar dados de exemplo</button>
+    <button id="p-reset" class="danger">Apagar todos os dados</button>
+   </div>
+   <div class="table-wrap">
+    <table id="p-table" class="table">
+     <thead><tr>
+      <th data-sort="name">Produtor</th><th data-sort="municipality">Município</th><th>Culturas</th><th data-sort="areaHa" class="num">Área (ha)</th><th data-sort="potentialVolumeT" class="num">Potencial (t)</th><th data-sort="relationship">Relação</th><th data-sort="lastContactAt">Último contato</th><th data-sort="score" class="num">Score</th><th></th>
+     </tr></thead>
+     <tbody></tbody>
+    </table>
+    <p id="p-empty" class="empty" hidden>Nenhum produtor cadastrado. Clique em <b>Novo produtor</b>, importe um CSV ou carregue os dados de exemplo no menu ⋯.</p>
+   </div>
+  </section>
+
+  <!-- DECISÃO -->
+  <section id="view-decision" class="view">
+   <div class="toolbar">
+    <h1>Decisão comercial</h1>
+    <div class="toolbar-actions">
+     <select id="d-priority" aria-label="Filtrar prioridade"><option value="">Todas as prioridades</option><option value="high">Prioridade alta</option><option value="medium">Validar</option><option value="watch">Monitorar</option><option value="incomplete">Completar dados</option></select>
+     <select id="d-consultant" aria-label="Filtrar consultor"><option value="">Todos os consultores</option></select>
+     <button id="d-new-intent" class="btn primary">Nova intenção</button>
+     <button id="d-new-market" class="btn">Registrar cotação</button>
+    </div>
+   </div>
+   <p class="hint">Score 0–100 pela regra <code>mapa-rules-v1</code>: potencial (30) + relacionamento (25) + mercado e preço (30) + janela (15). A regra explica, a equipe decide.</p>
+   <div class="decision-layout">
+    <div id="d-list" class="decision-list"></div>
+    <aside class="market-panel">
+     <h2>Cotações registradas</h2>
+     <div id="d-market" class="market-list"></div>
+    </aside>
+   </div>
+  </section>
+
+  <!-- ACOMPANHAMENTO -->
+  <section id="view-tracking" class="view">
+   <div class="toolbar">
+    <h1>Acompanhamento</h1>
+    <div class="toolbar-actions">
+     <select id="t-months" aria-label="Período"><option value="3">Últimos 3 meses</option><option value="6" selected>Últimos 6 meses</option><option value="12">Últimos 12 meses</option></select>
+     <button id="t-new-interaction" class="btn primary">Registrar interação</button>
+    </div>
+   </div>
+   <div id="t-kpis" class="kpis"></div>
+   <div class="charts">
+    <figure class="chart-card"><figcaption><span>Produtores e potencial por UF</span><button class="btn ghost small" data-download="chart-uf">Baixar PNG</button></figcaption><canvas id="chart-uf"></canvas></figure>
+    <figure class="chart-card"><figcaption><span>Volume potencial por cultura (t)</span><button class="btn ghost small" data-download="chart-culture">Baixar PNG</button></figcaption><canvas id="chart-culture"></canvas></figure>
+    <figure class="chart-card"><figcaption><span>Carteira por prioridade</span><button class="btn ghost small" data-download="chart-priority">Baixar PNG</button></figcaption><canvas id="chart-priority"></canvas></figure>
+    <figure class="chart-card"><figcaption><span>Interações por mês</span><button class="btn ghost small" data-download="chart-interactions">Baixar PNG</button></figcaption><canvas id="chart-interactions"></canvas></figure>
+    <figure class="chart-card"><figcaption><span>Funil de relacionamento</span><button class="btn ghost small" data-download="chart-funnel">Baixar PNG</button></figcaption><canvas id="chart-funnel"></canvas></figure>
+    <figure class="chart-card"><figcaption><span>Intenções por estado</span><button class="btn ghost small" data-download="chart-intents">Baixar PNG</button></figcaption><canvas id="chart-intents"></canvas></figure>
+   </div>
+   <h2>Últimas interações</h2>
+   <div id="t-recent" class="recent-list"></div>
+  </section>
+
+  <!-- APRESENTAÇÃO -->
+  <section id="view-presentation" class="view">
+   <div class="toolbar no-print">
+    <h1>Apresentação</h1>
+    <div class="toolbar-actions">
+     <button id="pr-copy" class="btn">Copiar resumo</button>
+     <button id="pr-print" class="btn primary">Imprimir / salvar PDF</button>
+    </div>
+   </div>
+   <div class="deck">
+    <header class="deck-head">
+     <img src="/val-logo.svg" alt="VAL" class="deck-logo">
+     <div><h2>Mapeamento de produtores e potencial</h2><p id="pr-date" class="hint"></p></div>
+    </header>
+    <div id="pr-kpis" class="kpis"></div>
+    <div class="deck-grid">
+     <figure class="chart-card"><figcaption><span>Potencial por UF</span></figcaption><canvas id="pr-chart-uf"></canvas></figure>
+     <figure class="chart-card"><figcaption><span>Volume por cultura</span></figcaption><canvas id="pr-chart-culture"></canvas></figure>
+    </div>
+    <h3>Onde está o potencial</h3>
+    <div class="table-wrap"><table class="table compact" id="pr-municipalities"><thead><tr><th>Município</th><th class="num">Produtores</th><th class="num">Área (ha)</th><th class="num">Potencial (t)</th><th class="num">Prioridade alta</th></tr></thead><tbody></tbody></table></div>
+    <h3>Prioridades da semana</h3>
+    <div class="table-wrap"><table class="table compact" id="pr-top"><thead><tr><th>#</th><th>Produtor</th><th>Município</th><th class="num">Potencial (t)</th><th class="num">Score</th><th>Próxima ação</th></tr></thead><tbody></tbody></table></div>
+    <p class="hint">Gerado pelo VAL Mapa com a regra mapa-rules-v1. Score é ordenação heurística, não probabilidade de compra.</p>
+   </div>
+  </section>
+ </main>
+</div>
+
+<div id="login" class="login" hidden>
+ <form id="login-form" class="login-card">
+  <img src="/val-logo.svg" alt="VAL" class="login-logo">
+  <h1>VAL Mapa</h1>
+  <p>Informe a senha de acesso do ambiente.</p>
+  <label class="field"><span>Senha</span><input id="login-password" type="password" autocomplete="current-password" required></label>
+  <button class="btn primary wide" type="submit">Entrar</button>
+  <p id="login-error" class="error" hidden></p>
+ </form>
+</div>
+
+<div id="modal" class="modal" hidden><div class="modal-card" role="dialog" aria-modal="true"><div id="modal-body"></div></div></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/vendor/chartjs/chart.umd.js"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
