@@ -175,6 +175,7 @@ function showDetail(producerId){
   ${item.warnings.length?`<ul class="warnings">${item.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:''}
   <div class="meta">${producer.season?`Safra <b>${esc(producer.season)}</b> · `:''}${producer.productivityScHa?`produtividade <b>${fmt(producer.productivityScHa)} sc/ha</b> · `:''}${producer.freight?`frete <b>${{cif:'CIF',fob:'FOB',both:'CIF e FOB'}[producer.freight]}</b> · `:''}Último contato: <b>${fmtDate(producer.lastContactAt)}</b>${producer.phone?` · ${esc(producer.phone)}`:''}</div>
   ${producer.locationPrecision==='municipality'?'<p class="meta" style="margin-top:6px"><span class="precision">Localização aproximada pelo município</span> — clique em Editar e marque o ponto exato no mini-mapa.</p>':''}
+  ${(producer.locationHistory||[]).length?`<details class="meta" style="margin-top:6px"><summary style="cursor:pointer">Posições anteriores (${producer.locationHistory.length})</summary><ul class="reasons">${producer.locationHistory.map((h,i)=>`<li>${new Date(h.replacedAt).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})} · ${Number(h.lat).toFixed(5)}, ${Number(h.lng).toFixed(5)} · ${h.precision==='municipality'?'aproximada':'exata'} · substituída por ${esc(h.source||'edição')} <button class="btn ghost small" data-restore="${i}">Restaurar</button></li>`).join('')}</ul></details>`:''}
   ${producer.notes?`<p class="meta" style="margin-top:6px">${esc(producer.notes)}</p>`:''}
   <div class="detail-actions">
    <button class="btn small primary" data-act="interaction">Registrar interação</button>
@@ -184,6 +185,7 @@ function showDetail(producerId){
   </div>`
  $('[data-close]',box).onclick=()=>{box.hidden=true;state.selected=null}
  $$('[data-act]',box).forEach(button=>button.onclick=()=>producerAction(button.dataset.act,producer))
+ $$('[data-restore]',box).forEach(button=>button.onclick=()=>run(()=>api(`/api/producers/${producer.id}/restore-location`,{method:'POST',body:{index:Number(button.dataset.restore)}}),'Posição restaurada.').then(()=>{renderMap.fitted=false;showDetail(producer.id)}))
 }
 function producerAction(action,producer){
  if(action==='edit')return openProducerForm(producer)

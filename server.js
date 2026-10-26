@@ -48,6 +48,15 @@ const authenticated=request=>!accessPassword||validSession(cookies(request).mapa
 const loginAttempts=new Map()
 
 // --- dados --------------------------------------------------------------------
+// Histórico de posição: toda mudança de coordenada guarda a posição anterior (até 20),
+// para que um erro de edição ou importação possa ser desfeito pela tela.
+function withLocationHistory(current,next,source){
+ const changed=current&&current.lat!==null&&current.lat!==undefined&&(Number(current.lat)!==Number(next.lat)||Number(current.lng)!==Number(next.lng))
+ const history=Array.isArray(current?.locationHistory)?current.locationHistory:[]
+ if(!changed)return {...next,locationHistory:history}
+ return {...next,locationHistory:[{lat:current.lat,lng:current.lng,precision:current.locationPrecision||'exact',replacedAt:new Date().toISOString(),source},...history].slice(0,20)}
+}
+
 async function bootstrap(){
  const [producers,intents,marketRefs,interactions]=await Promise.all(['producers','intents','market_refs','interactions'].map(name=>store.all(name)))
  const scored=scoreProducers({producers,intents,marketRefs,interactions})
@@ -81,6 +90,7 @@ async function importProducers(rows,{insertOnly=false}={}){
     const merged={...current}
     for(const [key,value] of Object.entries(data)){const empty=value===null||value===undefined||value===''||(Array.isArray(value)&&!value.length);if(!empty||merged[key]===undefined||merged[key]===null||merged[key]==='')merged[key]=value}
     if(data.lat===null){merged.lat=current.lat;merged.lng=current.lng;merged.locationPrecision=current.locationPrecision}
+    Object.assign(merged,withLocationHistory(current,merged,'importação'))
     if(!raw.volumeUnit&&raw.storageCapacitySc==null&&raw.estimatedVolumeSc==null)merged.volumeUnit=current.volumeUnit||data.volumeUnit
     await store.update('producers',current.id,merged);result.updated++
    }
@@ -175,6 +185,13 @@ async function api(request,response,url){
   return json(response,200,{center:{lat,lng},radiusKm:radius,count:items.length,potentialVolumeT:Math.round(items.reduce((sum,item)=>sum+(item.potentialVolumeT||0),0)),items})
  }
  if(resource==='producers'){
+  if(method==='POST'&&id&&segments[3]==='restore-location'){
+   const current=await store.get('producers',id);if(!current)throw domainError('Produtor não encontrado.',404)
+   const body=await readBody(request);const index=Number(body.index)
+   const entry=(current.locationHistory||[])[index];if(!entry)throw domainError('Posição anterior não encontrada.',404)
+   const restored=withLocationHistory(current,{...current,lat:entry.lat,lng:entry.lng,locationPrecision:entry.precision||'exact'},'restauração')
+   return json(response,200,await store.update('producers',id,restored))
+  }
   if(method==='POST'&&id==='import')return json(response,200,await importProducers((await readBody(request)).rows))
   if(method==='POST'&&(id==='import-file'||id==='preview-file')){
    const body=await readBody(request)
@@ -191,7 +208,7 @@ async function api(request,response,url){
    const current=await store.get('producers',id);if(!current)throw domainError('Produtor não encontrado.',404)
    const data=normalizeProducer(await readBody(request))
    // A edição pela tela não envia a chave externa do lote importado; ela precisa sobreviver.
-   return json(response,200,await store.update('producers',id,{...data,externalKey:data.externalKey||current.externalKey||''}))
+   return json(response,200,await store.update('producers',id,withLocationHistory(current,{...data,externalKey:data.externalKey||current.externalKey||''},'edição')))
   }
   if(method==='DELETE'&&id){
    if(!await store.remove('producers',id))throw domainError('Produtor não encontrado.',404)
