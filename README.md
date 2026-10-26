@@ -1,10 +1,10 @@
 # VAL Mapa
 
-Mapeamento geográfico de produtores com viés de decisão comercial, levantamento de dados para apresentações e gráficos de acompanhamento. Derivado da base da **VAL Grãos (SOG)**: reaproveita a identidade VAL e a regra de priorização explicável (`sog-rules-v1` → `mapa-rules-v1`), em um ambiente simples e independente.
+Mapeamento geográfico de produtores com viés de decisão comercial, levantamento de dados para apresentações e gráficos de acompanhamento. Derivado da base da **VAL Grãos (SOG)**: reaproveita a marca oficial da VAL (ativo original em `public/brand`) e a regra de priorização explicável (`sog-rules-v1` → `mapa-rules-v1`), em um ambiente simples e independente.
 
 ## O que faz
 
-- **Mapa**: produtores georreferenciados, cor por prioridade e tamanho por volume potencial. Filtros por cultura, UF, relacionamento, prioridade e busca. Agrupamento por município. **Planejar rota**: clique no mapa, escolha um raio e veja quem está ao alcance, ordenado por score.
+- **Mapa**: base OpenStreetMap ou satélite (Esri World Imagery, com ou sem nomes), produtores georreferenciados, cor por prioridade e tamanho por volume potencial. Filtros por cultura, UF, relacionamento, prioridade e busca. Agrupamento por município. **Planejar rota**: clique no mapa, escolha um raio e veja quem está ao alcance, ordenado por score.
 - **Produtores**: cadastro, edição, importação em lote por CSV (colar ou enviar arquivo), exportação CSV, geocodificação por município (OpenStreetMap/Nominatim) e dados de exemplo para demonstração.
 - **Decisão**: ranking com score 0–100 e explicação (potencial 30 + relacionamento 25 + mercado e preço 30 + janela 15), próxima ação sugerida, intenções comerciais com ciclo de estados e cotações por praça.
 - **Acompanhamento**: KPIs e gráficos (potencial por UF, volume por cultura, carteira por prioridade, interações por mês, funil de relacionamento, intenções por estado), todos com download em PNG.

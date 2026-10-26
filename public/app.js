@@ -89,7 +89,15 @@ $('#f-clear').addEventListener('click',()=>{['#f-search','#f-culture','#f-uf','#
 function ensureMap(){
  if(state.map)return
  state.map=L.map('map',{zoomControl:true}).setView([-15.8,-52],4)
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(state.map)
+ const streets=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'})
+ const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagens &copy; Esri, Maxar, Earthstar Geographics e comunidade GIS'})
+ const labels=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,pane:'overlayPane',opacity:.95})
+ const hybrid=L.layerGroup([imagery,labels])
+ const baseLayers={'Mapa':streets,'Satélite':imagery,'Satélite com nomes':hybrid}
+ let saved='Mapa';try{saved=localStorage.getItem('val-mapa-base')||'Mapa'}catch{}
+ ;(baseLayers[saved]||streets).addTo(state.map)
+ L.control.layers(baseLayers,null,{position:'topright',collapsed:false}).addTo(state.map)
+ state.map.on('baselayerchange',event=>{try{localStorage.setItem('val-mapa-base',event.name)}catch{}})
  state.layer=L.layerGroup().addTo(state.map)
  state.planLayer=L.layerGroup().addTo(state.map)
  state.map.on('click',event=>{if(state.plan.active){state.plan.center=event.latlng;renderPlan()}})

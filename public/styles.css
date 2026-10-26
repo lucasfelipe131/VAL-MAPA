@@ -23,10 +23,13 @@ code{font-size:.9em;background:rgba(0,200,150,.1);padding:1px 5px;border-radius:
 
 .app{display:flex;flex-direction:column;min-height:100vh}
 .topbar{display:flex;align-items:center;gap:18px;padding:10px 18px;background:linear-gradient(180deg,#071b19,#0a2622);color:#fff;position:sticky;top:0;z-index:50;box-shadow:0 10px 30px rgba(4,28,24,.18)}
-.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;min-width:0}
-.brand-logo{height:34px;width:auto;background:#fff;border-radius:9px;padding:3px 6px}
-.brand-text{display:flex;flex-direction:column;line-height:1.05}
-.brand-text strong{font-weight:820;letter-spacing:.06em;font-size:15px}
+.brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;min-width:0}
+/* Marca oficial da VAL: ativo original em PNG, dimensionado pela altura do símbolo. */
+.brand-lockup{display:inline-flex;align-items:center;gap:9px;--val-mark-height:38px}
+.brand-lockup .brand-mark{display:block;height:var(--val-mark-height);width:auto;filter:drop-shadow(0 6px 14px rgba(0,0,0,.32));user-select:none}
+.brand-lockup .brand-word{display:block;height:calc(var(--val-mark-height) * .52);width:auto;user-select:none}
+.brand-text{display:flex;flex-direction:column;line-height:1.05;padding-left:12px;border-left:1px solid rgba(255,255,255,.18)}
+.brand-text strong{font-weight:820;letter-spacing:.08em;font-size:15px;text-transform:uppercase}
 .brand-text small{font-size:10px;color:rgba(215,242,234,.6);letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-top:3px}
 .tabs{display:flex;gap:4px;margin-left:auto;overflow-x:auto;scrollbar-width:none}
 .tabs button{background:transparent;border:1px solid transparent;color:rgba(220,239,233,.72);padding:8px 14px;border-radius:10px;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
@@ -137,13 +140,18 @@ main{flex:1;display:flex;flex-direction:column}
 /* apresentação */
 .deck{background:#fff;border:1px solid var(--val-line);border-radius:var(--radius);box-shadow:var(--shadow);padding:26px 28px;max-width:1100px;margin:0 auto}
 .deck-head{display:flex;align-items:center;gap:16px;margin-bottom:18px}
-.deck-logo{height:44px}
+.deck-head{background:linear-gradient(135deg,#071b19,#0e3530);color:#fff;border-radius:12px;padding:16px 20px}
+.deck-head .hint{color:rgba(215,242,234,.7)}
+.deck-logo{display:inline-flex;align-items:center;gap:10px;--val-mark-height:48px}
+.deck-logo img:first-child{height:var(--val-mark-height);width:auto}
+.deck-logo img:last-child{height:calc(var(--val-mark-height) * .52);width:auto}
 .deck-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 
 /* login, modal, toast */
 .login{min-height:100vh;display:grid;place-items:center;padding:20px}
 .login-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);padding:30px;width:360px;max-width:100%;display:flex;flex-direction:column;gap:12px;text-align:center}
-.login-logo{height:48px;align-self:center}
+.login-brand{background:linear-gradient(160deg,#071b19,#0e3530);border-radius:14px;padding:22px 26px;display:grid;place-items:center;margin:-8px -8px 4px}
+.login-logo{height:120px;width:auto;filter:drop-shadow(0 8px 18px rgba(0,0,0,.35))}
 .modal{position:fixed;inset:0;background:rgba(7,27,25,.55);display:grid;place-items:center;z-index:900;padding:16px}
 .modal-card{background:#fff;border-radius:16px;box-shadow:var(--shadow);width:620px;max-width:100%;max-height:92vh;overflow:auto;padding:22px}
 .modal-card h2{margin:0 0 12px}
@@ -157,7 +165,8 @@ main{flex:1;display:flex;flex-direction:column}
 @media (max-width:900px){
  .topbar{flex-wrap:wrap;gap:8px;padding:8px 12px}
  .tabs{order:3;width:100%;margin-left:0}
- .brand-text small{display:none}
+ .brand-text{display:none}
+ .brand-lockup{--val-mark-height:32px}
  #view-map.active{grid-template-columns:1fr;grid-template-rows:auto 1fr;min-height:auto}
  .map-panel{max-height:none;border-right:0;border-bottom:1px solid var(--val-line)}
  .map{height:62vh}
@@ -172,5 +181,12 @@ main{flex:1;display:flex;flex-direction:column}
  .view{padding:0}
  #view-presentation{display:block!important}
  .deck{box-shadow:none;border:0;max-width:none}
+ .deck-head{-webkit-print-color-adjust:exact;print-color-adjust:exact}
  .chart-card{break-inside:avoid}
 }
+
+/* Seletor de camada base (Mapa / Satélite) */
+.leaflet-control-layers{border:1px solid var(--val-line)!important;border-radius:12px!important;box-shadow:var(--shadow)!important;font:inherit;padding:6px 10px}
+.leaflet-control-layers-list label{font-size:13px;font-weight:700;color:var(--val-text);display:block;padding:3px 0}
+.leaflet-control-layers-selector{accent-color:var(--val-emerald-dark);margin-right:6px}
+.leaflet-bar a{color:var(--val-text)}
