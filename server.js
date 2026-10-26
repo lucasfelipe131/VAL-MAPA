@@ -217,14 +217,21 @@ async function api(request,response,url){
  throw domainError('Rota não encontrada.',404)
 }
 
+// Versão dos ativos: hash do CSS e do JS. O index.html referencia /styles.css?v=HASH e /app.js?v=HASH,
+// então cada publicação força o navegador a buscar os arquivos novos; o restante revalida por ETag.
+const assetVersion=createHmac('sha256','val-mapa-assets').update(['styles.css','app.js'].map(name=>fs.readFileSync(path.join(root,'public',name))).reduce((acc,buf)=>Buffer.concat([acc,buf]),Buffer.alloc(0))).digest('hex').slice(0,10)
+const indexHtml=()=>fs.readFileSync(path.join(root,'public','index.html'),'utf8').replace('href="/styles.css"',`href="/styles.css?v=${assetVersion}"`).replace('src="/app.js"',`src="/app.js?v=${assetVersion}"`)
 function serveStatic(request,response,url){
  const requested=url.pathname==='/'?'/index.html':url.pathname
  const file=path.normalize(path.join(root,'public',requested))
- if(!file.startsWith(path.join(root,'public'))||!fs.existsSync(file)||fs.statSync(file).isDirectory()){
-  const index=path.join(root,'public','index.html')
-  response.writeHead(200,{'Content-Type':mime['.html'],'Cache-Control':'no-cache'});return fs.createReadStream(index).pipe(response)
+ if(requested==='/index.html'||!file.startsWith(path.join(root,'public'))||!fs.existsSync(file)||fs.statSync(file).isDirectory()){
+  response.writeHead(200,{'Content-Type':mime['.html'],'Cache-Control':'no-cache, must-revalidate'});return response.end(indexHtml())
  }
- response.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':requested==='/index.html'?'no-cache':'public, max-age=3600'})
+ const stat=fs.statSync(file);const etag=`W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`
+ if(request.headers['if-none-match']===etag){response.writeHead(304,{ETag:etag});return response.end()}
+ const versioned=url.searchParams.get('v')===assetVersion
+ const longLived=versioned||requested.startsWith('/vendor/')||requested.startsWith('/brand/')
+ response.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':longLived?'public, max-age=604800':'no-cache, must-revalidate',ETag:etag})
  fs.createReadStream(file).pipe(response)
 }
 
