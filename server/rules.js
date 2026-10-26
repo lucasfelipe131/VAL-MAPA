@@ -54,9 +54,9 @@ const cultureList=value=>{
 }
 
 export function normalizeProducer(input={}){
- const name=text(input.name,180)
+ const name=text(input.name,180).replace(/\s+/g,' ')
  if(!name)throw domainError('Informe o nome do produtor.')
- const municipality=text(input.municipality,140)
+ const municipality=text(input.municipality,140).replace(/\s+/g,' ')
  if(!municipality)throw domainError('Informe o município do produtor.')
  const uf=text(input.uf,2).toUpperCase()
  if(uf&&!ufs.includes(uf))throw domainError('A UF informada é inválida.')
@@ -71,11 +71,17 @@ export function normalizeProducer(input={}){
  const storageRaw=number(input.storageCapacitySc)!==null?number(input.storageCapacitySc)*SC_TONNES:number(input.storageCapacityT)!==null?number(input.storageCapacityT)*factor:null
  const volumeRaw=number(input.estimatedVolumeSc)!==null?number(input.estimatedVolumeSc)*SC_TONNES:number(input.estimatedVolumeT)!==null?number(input.estimatedVolumeT)*factor:null
  const storageT=storageRaw===null?null:Number(storageRaw.toFixed(3));if(storageT!==null&&storageT<0)throw domainError('A armazenagem não pode ser negativa.')
- const volumeT=volumeRaw===null?null:Number(volumeRaw.toFixed(3));if(volumeT!==null&&volumeT<0)throw domainError('O volume estimado não pode ser negativo.')
+ let volumeT=volumeRaw===null?null:Number(volumeRaw.toFixed(3));if(volumeT!==null&&volumeT<0)throw domainError('O volume estimado não pode ser negativo.')
+ if(volumeT===null&&areaHa!==null&&number(input.productivityScHa)!==null)volumeT=Number((areaHa*number(input.productivityScHa)*SC_TONNES).toFixed(3))
  const lastContactAt=input.lastContactAt?isoDate(input.lastContactAt):null
  if(input.lastContactAt&&!lastContactAt)throw domainError('A data do último contato é inválida.')
+ const productivity=number(input.productivityScHa);if(productivity!==null&&productivity<0)throw domainError('A produtividade não pode ser negativa.')
+ const freightRaw=slug(input.freight).replace(/\s+/g,'_')
+ const freight=/^(cif_fob|fob_cif|both|ambos|cif_e_fob)$/.test(freightRaw)?'both':freightRaw==='cif'?'cif':freightRaw==='fob'?'fob':''
+ const precision=slug(input.locationPrecision)==='municipality'||input.approximate===true?'municipality':lat===null?'':'exact'
  return {
-  name,municipality,uf,lat,lng,areaHa,
+  name,municipality,uf,region:text(input.region,120),season:text(input.season,20),lat,lng,locationPrecision:precision,areaHa,
+  productivityScHa:productivity,freight,
   cultures:cultureList(input.cultures),
   storageCapacityT:storageT,estimatedVolumeT:volumeT,volumeUnit:(input.storageCapacitySc!=null&&input.storageCapacitySc!=='')||(input.estimatedVolumeSc!=null&&input.estimatedVolumeSc!=='')?'sc':volumeUnit,
   relationship:choice(input.relationship,relationshipCodes,'prospect','O status de relacionamento é inválido.'),

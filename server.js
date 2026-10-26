@@ -4,6 +4,7 @@ import path from 'node:path'
 import {createHmac,timingSafeEqual,randomBytes} from 'node:crypto'
 import {createStore} from './server/store.js'
 import {geocodeMunicipality} from './server/geocode.js'
+import {parseImportFile} from './server/import.js'
 import {normalizeProducer,normalizeIntent,normalizeMarketRef,normalizeInteraction,scoreProducers,summarize,distanceKm,domainError,tonnesToSacas,commodityLabels,relationshipLabels,intentStatusLabels,interactionKinds,ufs} from './server/rules.js'
 
 const root=path.dirname(new URL(import.meta.url).pathname)
@@ -73,7 +74,14 @@ async function importProducers(rows){
   try{
    const data=normalizeProducer(raw)
    const current=(data.externalKey&&byExternal.get(data.externalKey))||byKey.get(keyOf(data))
-   if(current){await store.update('producers',current.id,{...current,...data,lat:data.lat??current.lat,lng:data.lng??current.lng});result.updated++}
+   if(current){
+    // Atualização preserva o que já existia quando a planilha não traz o campo.
+    const merged={...current}
+    for(const [key,value] of Object.entries(data)){const empty=value===null||value===undefined||value===''||(Array.isArray(value)&&!value.length);if(!empty||merged[key]===undefined||merged[key]===null||merged[key]==='')merged[key]=value}
+    if(data.lat===null){merged.lat=current.lat;merged.lng=current.lng;merged.locationPrecision=current.locationPrecision}
+    if(!raw.volumeUnit&&raw.storageCapacitySc==null&&raw.estimatedVolumeSc==null)merged.volumeUnit=current.volumeUnit||data.volumeUnit
+    await store.update('producers',current.id,merged);result.updated++
+   }
    else{const created=await store.insert('producers',data);byKey.set(keyOf(created),created);if(created.externalKey)byExternal.set(created.externalKey,created);result.inserted++}
   }catch(error){result.rejected.push({line:index+1,name:raw?.name||'',error:error.message})}
  }
@@ -92,6 +100,34 @@ async function seedExample(){
  for(const interaction of sample.interactions)await store.insert('interactions',normalizeInteraction({...interaction,producerId:ids.get(interaction.producer),occurredAt:shift(-interaction.daysAgo)}))
  return {producers:sample.producers.length}
 }
+
+// --- importação automática (data/import/*.json) ---------------------------------
+// Cada arquivo traz {batch, defaults, rows}. O lote só entra uma vez: se já houver
+// produtor com a chave externa do lote, nada é refeito. Coordenadas aproximadas
+// por município recebem um pequeno deslocamento determinístico para não se sobrepor.
+const jitter=(seed,amplitude)=>{let h=2166136261;for(const ch of seed){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}return ((h>>>0)/4294967295-0.5)*2*amplitude}
+async function autoImport(){
+ const dir=path.join(root,'data','import')
+ if(!fs.existsSync(dir))return
+ const existing=await store.all('producers')
+ for(const file of fs.readdirSync(dir).filter(name=>name.endsWith('.json')).sort()){
+  try{
+   const batch=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8'))
+   const prefix=`${batch.batch||file.replace(/\.json$/,'')}:`
+   if(existing.some(p=>String(p.externalKey||'').startsWith(prefix)))continue
+   const rows=(batch.rows||[]).map(row=>{
+    const merged={...(batch.defaults||{}),...row}
+    const key=`${prefix}${String(merged.externalKey||merged.name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-')}`
+    if(batch.approximateLocation&&merged.lat!==undefined&&merged.lng!==undefined&&row.lat===undefined){merged.lat=Number(merged.lat)+jitter(key,0.035);merged.lng=Number(merged.lng)+jitter(`${key}|lng`,0.045);merged.locationPrecision='municipality'}
+    return {...merged,externalKey:key}
+   })
+   const result=await importProducers(rows)
+   console.log(`Importação automática ${file}: ${result.inserted} novo(s), ${result.updated} atualizado(s), ${result.rejected.length} rejeitado(s)`)
+   if(result.rejected.length)console.warn(result.rejected.slice(0,10))
+  }catch(error){console.error(`Falha na importação automática de ${file}:`,error.message)}
+ }
+}
+await autoImport()
 
 // --- rotas --------------------------------------------------------------------
 async function api(request,response,url){
@@ -131,6 +167,16 @@ async function api(request,response,url){
  }
  if(resource==='producers'){
   if(method==='POST'&&id==='import')return json(response,200,await importProducers((await readBody(request)).rows))
+  if(method==='POST'&&(id==='import-file'||id==='preview-file')){
+   const body=await readBody(request)
+   if(!body.contentBase64)throw domainError('Envie o arquivo em base64.')
+   const buffer=Buffer.from(String(body.contentBase64),'base64')
+   if(buffer.length>8_000_000)throw domainError('Arquivo acima de 8 MB.')
+   const parsed=parseImportFile({filename:body.filename||'',buffer,defaults:body.defaults||{},externalKeyPrefix:body.batch?String(body.batch).slice(0,60):''})
+   if(id==='preview-file')return json(response,200,{sheet:parsed.sheet,headerLine:parsed.headerLine,fields:parsed.fields,count:parsed.producers.length,skipped:parsed.skipped,sample:parsed.producers.slice(0,5)})
+   const result=await importProducers(parsed.producers)
+   return json(response,200,{...result,sheet:parsed.sheet,headerLine:parsed.headerLine,fields:parsed.fields,skipped:parsed.skipped})
+  }
   if(method==='POST')return json(response,201,await store.insert('producers',normalizeProducer(await readBody(request))))
   if(method==='PUT'&&id){const current=await store.get('producers',id);if(!current)throw domainError('Produtor não encontrado.',404);return json(response,200,await store.update('producers',id,normalizeProducer(await readBody(request))))}
   if(method==='DELETE'&&id){

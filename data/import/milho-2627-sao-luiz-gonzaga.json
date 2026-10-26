@@ -1,0 +1,209 @@
+{
+ "batch": "milho-2627-sao-luiz-gonzaga",
+ "source": "Planilha \"Levantamento da Área de milho 26/27\" enviada pelo usuário em 26/10/2026",
+ "note": "Importado automaticamente na inicialização. Coordenadas aproximadas pelo município; ajuste a localização exata no cadastro de cada produtor.",
+ "approximateLocation": true,
+ "defaults": {
+  "municipality": "São Luiz Gonzaga",
+  "uf": "RS",
+  "region": "Missões",
+  "season": "26/27",
+  "cultures": "milho",
+  "relationship": "prospect",
+  "volumeUnit": "sc",
+  "lat": -28.4083,
+  "lng": -54.9608,
+  "notes": "Levantamento da área de milho 26/27 (São Luiz Gonzaga)."
+ },
+ "rows": [
+  {
+   "name": "Genor Brum Filho",
+   "areaHa": 180,
+   "productivityScHa": 180,
+   "estimatedVolumeSc": 32400,
+   "freight": "cif"
+  },
+  {
+   "name": "Ivo de Souza Batista",
+   "areaHa": 1000,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 170000,
+   "freight": "cif"
+  },
+  {
+   "name": "Henrique Steffen Gambin",
+   "areaHa": 400,
+   "productivityScHa": 190,
+   "estimatedVolumeSc": 76000,
+   "freight": "cif"
+  },
+  {
+   "name": "Antonio Carlos Costa Beber",
+   "areaHa": 300,
+   "productivityScHa": 180,
+   "estimatedVolumeSc": 54000,
+   "freight": "cif"
+  },
+  {
+   "name": "Grupo Jaeger",
+   "areaHa": 320,
+   "productivityScHa": 180,
+   "estimatedVolumeSc": 57600,
+   "freight": "fob"
+  },
+  {
+   "name": "Ronei Baiotto",
+   "areaHa": 400,
+   "productivityScHa": 190,
+   "estimatedVolumeSc": 76000,
+   "freight": "cif"
+  },
+  {
+   "name": "Enio Costa Beber",
+   "areaHa": 300,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 51000,
+   "freight": "cif"
+  },
+  {
+   "name": "Franscisco Ceolin",
+   "areaHa": 400,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 68000,
+   "freight": "both"
+  },
+  {
+   "name": "Familia Seibt",
+   "areaHa": 200,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 32000,
+   "freight": "cif"
+  },
+  {
+   "name": "Familia Backes",
+   "areaHa": 100,
+   "productivityScHa": 150,
+   "estimatedVolumeSc": 15000,
+   "freight": "cif"
+  },
+  {
+   "name": "Daniel Borré",
+   "areaHa": 300,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 48000,
+   "freight": "cif"
+  },
+  {
+   "name": "Denise Costa Beber",
+   "areaHa": 500,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 85000,
+   "freight": "cif"
+  },
+  {
+   "name": "Giovani Boligon",
+   "areaHa": 250,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 42500,
+   "freight": "cif"
+  },
+  {
+   "name": "Jair De Oliveira",
+   "areaHa": 300,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 51000,
+   "freight": "cif"
+  },
+  {
+   "name": "Joseana Mattioni Kurylo",
+   "areaHa": 300,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 51000,
+   "freight": "cif"
+  },
+  {
+   "name": "Lauri Dal Pai",
+   "areaHa": 300,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 51000,
+   "freight": "cif"
+  },
+  {
+   "name": "Luiz Franscisco Wickert",
+   "areaHa": 400,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 64000,
+   "freight": "cif"
+  },
+  {
+   "name": "Matheus Dos Santos Machado",
+   "areaHa": 500,
+   "productivityScHa": 140,
+   "estimatedVolumeSc": 70000,
+   "freight": "cif"
+  },
+  {
+   "name": "Matheus Foletto",
+   "areaHa": 250,
+   "productivityScHa": 150,
+   "estimatedVolumeSc": 37500,
+   "freight": "cif"
+  },
+  {
+   "name": "Paulo Rogerio Massoco",
+   "areaHa": 700,
+   "productivityScHa": 150,
+   "estimatedVolumeSc": 105000,
+   "freight": "cif"
+  },
+  {
+   "name": "Rodrigo Peixoto",
+   "areaHa": 400,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 64000,
+   "freight": "cif"
+  },
+  {
+   "name": "Valtair Domingo Coro",
+   "areaHa": 1000,
+   "productivityScHa": 150,
+   "estimatedVolumeSc": 150000,
+   "freight": "fob"
+  },
+  {
+   "name": "Wanderley Savio De Moura",
+   "areaHa": 150,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 24000,
+   "freight": "cif"
+  },
+  {
+   "name": "Edelmar Costa Beber",
+   "areaHa": 600,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 96000,
+   "freight": "fob"
+  },
+  {
+   "name": "Jean Minikel Kohler",
+   "areaHa": 400,
+   "productivityScHa": 160,
+   "estimatedVolumeSc": 64000,
+   "freight": "fob"
+  },
+  {
+   "name": "Grupo Cardinal",
+   "areaHa": 500,
+   "productivityScHa": 170,
+   "estimatedVolumeSc": 85000,
+   "freight": "fob"
+  },
+  {
+   "name": "Edigard Diovan Stumm Monteiro",
+   "areaHa": 400,
+   "productivityScHa": 150,
+   "estimatedVolumeSc": 60000,
+   "freight": "fob"
+  }
+ ]
+}

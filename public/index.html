@@ -42,6 +42,7 @@
      <div class="grid-2">
       <label class="field"><span>Cultura</span><select id="f-culture"><option value="">Todas</option></select></label>
       <label class="field"><span>UF</span><select id="f-uf"><option value="">Todas</option></select></label>
+      <label class="field"><span>Região</span><select id="f-region"><option value="">Todas</option></select></label>
       <label class="field"><span>Relacionamento</span><select id="f-relationship"><option value="">Todos</option></select></label>
       <label class="field"><span>Prioridade</span><select id="f-priority"><option value="">Todas</option><option value="high">Prioridade alta</option><option value="medium">Validar</option><option value="watch">Monitorar</option><option value="incomplete">Completar dados</option></select></label>
      </div>
@@ -152,20 +153,38 @@
      <button id="pr-print" class="btn primary">Imprimir / salvar PDF</button>
     </div>
    </div>
+   <div class="filters no-print" id="pr-filters" aria-label="Filtros da apresentação">
+    <select id="prf-uf" aria-label="UF"><option value="">Todas as UFs</option></select>
+    <select id="prf-region" aria-label="Região"><option value="">Todas as regiões</option></select>
+    <select id="prf-municipality" aria-label="Município"><option value="">Todos os municípios</option></select>
+    <select id="prf-culture" aria-label="Cultura"><option value="">Todas as culturas</option></select>
+    <select id="prf-consultant" aria-label="Consultor"><option value="">Todos os consultores</option></select>
+    <select id="prf-priority" aria-label="Prioridade"><option value="">Todas as prioridades</option><option value="high">Prioridade alta</option><option value="medium">Validar</option><option value="watch">Monitorar</option><option value="incomplete">Completar dados</option></select>
+    <select id="prf-season" aria-label="Safra"><option value="">Todas as safras</option></select>
+    <button id="prf-clear" class="btn ghost small">Limpar filtros</button>
+   </div>
    <div class="deck">
     <header class="deck-head">
      <span class="deck-logo"><img src="/brand/val-symbol-official.png" alt="VAL" draggable="false"><img src="/brand/val-wordmark-only-official.png" alt="" draggable="false"></span>
      <div><h2>Mapeamento de produtores e potencial</h2><p id="pr-date" class="hint"></p></div>
     </header>
+    <p id="pr-filter-summary" class="hint"></p>
     <div id="pr-kpis" class="kpis"></div>
+    <h3>Onde estão os produtores</h3>
+    <div id="pr-map" class="pr-map" role="region" aria-label="Mapa dos produtores filtrados"></div>
+    <div class="legend-items inline"><span><i style="background:var(--p-high)"></i>Prioridade alta</span><span><i style="background:var(--p-medium)"></i>Validar</span><span><i style="background:var(--p-watch)"></i>Monitorar</span><span><i style="background:var(--p-incomplete)"></i>Completar dados</span><span class="hint">tamanho = potencial</span></div>
+    <h3>Potencial por região</h3>
     <div class="deck-grid">
-     <figure class="chart-card"><figcaption><span>Potencial por UF</span></figcaption><canvas id="pr-chart-uf"></canvas></figure>
-     <figure class="chart-card"><figcaption><span>Volume por cultura</span></figcaption><canvas id="pr-chart-culture"></canvas></figure>
+     <figure class="chart-card"><figcaption><span>Potencial por região (t)</span></figcaption><canvas id="pr-chart-region"></canvas></figure>
+     <figure class="chart-card"><figcaption><span>Volume por cultura (t)</span></figcaption><canvas id="pr-chart-culture"></canvas></figure>
     </div>
-    <h3>Onde está o potencial</h3>
-    <div class="table-wrap"><table class="table compact" id="pr-municipalities"><thead><tr><th>Município</th><th class="num">Produtores</th><th class="num">Área (ha)</th><th class="num">Potencial (t)</th><th class="num">Prioridade alta</th></tr></thead><tbody></tbody></table></div>
+    <div class="table-wrap"><table class="table compact" id="pr-regions"><thead><tr><th>Região</th><th>Município</th><th class="num">Produtores</th><th class="num">Área (ha)</th><th class="num">Potencial (t)</th><th class="num">Potencial (sc)</th><th class="num">Prioridade alta</th></tr></thead><tbody></tbody></table></div>
+    <div class="deck-grid" style="margin-top:14px">
+     <figure class="chart-card"><figcaption><span>Potencial por UF (t)</span></figcaption><canvas id="pr-chart-uf"></canvas></figure>
+     <figure class="chart-card"><figcaption><span>Carteira por prioridade</span></figcaption><canvas id="pr-chart-priority"></canvas></figure>
+    </div>
     <h3>Prioridades da semana</h3>
-    <div class="table-wrap"><table class="table compact" id="pr-top"><thead><tr><th>#</th><th>Produtor</th><th>Município</th><th class="num">Potencial (t)</th><th class="num">Score</th><th>Próxima ação</th></tr></thead><tbody></tbody></table></div>
+    <div class="table-wrap"><table class="table compact" id="pr-top"><thead><tr><th>#</th><th>Produtor</th><th>Município</th><th class="num">Potencial (t)</th><th class="num">Potencial (sc)</th><th class="num">Score</th><th>Próxima ação</th></tr></thead><tbody></tbody></table></div>
     <p class="hint">Gerado pelo VAL Mapa com a regra mapa-rules-v1. Score é ordenação heurística, não probabilidade de compra.</p>
    </div>
   </section>
