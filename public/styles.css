@@ -163,6 +163,9 @@ main{flex:1;display:flex;flex-direction:column}
 .import-preview{max-height:220px;overflow:auto;font-size:12px}
 
 @media (max-width:900px){
+ .grid-3{grid-template-columns:1fr 1fr}
+ .grid-3 .field[style*="span 2"]{grid-column:span 2}
+ .modal-card{padding:16px}
  .topbar{flex-wrap:wrap;gap:8px;padding:8px 12px}
  .tabs{order:3;width:100%;margin-left:0}
  .brand-text{display:none}
@@ -198,7 +201,16 @@ main{flex:1;display:flex;flex-direction:column}
 .legend-items.inline{flex-direction:row;flex-wrap:wrap;gap:14px;margin-bottom:6px}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;max-width:1100px;margin-left:auto;margin-right:auto}
 .filters select{font:inherit;font-weight:600;color:var(--val-text);background:#fff;border:1px solid var(--val-line);border-radius:10px;padding:8px 10px}
-.modal-card.wide{width:760px}
+.modal-card.wide{width:min(760px,100%)}
 .precision{font-size:11px;font-weight:700;color:#9a6a08;background:rgba(229,165,40,.16);padding:2px 8px;border-radius:999px}
 .gps-dot{width:14px;height:14px;border-radius:50%;background:#2d8cff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(45,140,255,.25)}
 @media print{.pr-map{height:380px;break-inside:avoid}.filters{display:none}}
+
+/* Mini-mapa em tela cheia para marcar o pin */
+.form-map{cursor:pointer}
+.form-map.fullscreen{position:fixed!important;inset:0;width:100vw;z-index:2000;height:100vh;height:100dvh;border-radius:0;border:0;margin:0;cursor:crosshair}
+body.map-fullscreen{overflow:hidden}
+.leaflet-control-fullscreen a,.leaflet-control-gps a{width:auto!important;padding:0 12px;font-weight:800;font-size:13px;line-height:30px;height:30px;color:var(--val-text);white-space:nowrap}
+.form-map.fullscreen .leaflet-control-fullscreen a{background:linear-gradient(135deg,#009f78,#00c896 52%,#2d8cff);color:#fff;font-size:15px;line-height:40px;height:40px;padding:0 18px}
+.form-map-hint{background:rgba(7,27,25,.9);color:#fff;padding:10px 14px;border-radius:12px;font-size:14px;max-width:min(420px,calc(100vw - 32px));box-shadow:var(--shadow)}
+.form-map.fullscreen .leaflet-bottom.leaflet-left{bottom:max(14px,env(safe-area-inset-bottom))}

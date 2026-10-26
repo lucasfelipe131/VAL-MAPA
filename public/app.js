@@ -237,8 +237,8 @@ function download(name,content,type){const url=URL.createObjectURL(new Blob([con
 // --- formulários -----------------------------------------------------------------
 function openModal(html){$('#modal-body').innerHTML=html;$('#modal').hidden=false;const first=$('#modal input,#modal select,#modal textarea');first?.focus();return $('#modal-body')}
 function closeModal(){if(state.modalCleanup){try{state.modalCleanup()}catch{}state.modalCleanup=null}$('#modal').hidden=true}
-$('#modal').addEventListener('click',event=>{if(event.target.id==='modal')closeModal()})
-document.addEventListener('keydown',event=>{if(event.key==='Escape')closeModal()})
+$('#modal').addEventListener('click',event=>{if(event.target.id==='modal'&&!document.body.classList.contains('map-fullscreen'))closeModal()})
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){if(state.exitMapFullscreen&&state.exitMapFullscreen())return;closeModal()}})
 const options=(items,selected)=>items.map(item=>`<option value="${esc(item.value)}" ${item.value===selected?'selected':''}>${esc(item.label)}</option>`).join('')
 const formData=form=>Object.fromEntries(new FormData(form).entries())
 const producerOptions=selected=>options([...state.data.producers].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')).map(p=>({value:p.id,label:`${p.name} — ${p.municipality}`})),selected)
@@ -316,13 +316,33 @@ function openProducerForm(producer={}){
   if(!marker){marker=L.marker([lat,lng],{draggable:true}).addTo(miniMap);marker.on('dragend',()=>{const p=marker.getLatLng();form.lat.value=p.lat.toFixed(5);form.lng.value=p.lng.toFixed(5);form.locationPrecision.value='exact'})}
   else marker.setLatLng([lat,lng])
   form.lat.value=Number(lat).toFixed(5);form.lng.value=Number(lng).toFixed(5);form.locationPrecision.value=precision
+  const badge=$('.form-map-tools .precision',form);if(badge)badge.hidden=precision==='exact'
  }
  if(hasPoint)placeMarker(producer.lat,producer.lng,producer.locationPrecision||'exact')
- miniMap.on('click',event=>placeMarker(event.latlng.lat,event.latlng.lng,'exact'))
+ // Tela cheia: o toque no mapa pequeno abre a tela cheia; na tela cheia, o toque marca a propriedade.
+ const mapBox=$('#form-map',form)
+ const setFullscreen=on=>{
+  mapBox.classList.toggle('fullscreen',on);document.body.classList.toggle('map-fullscreen',on)
+  fullscreenControl.getContainer().querySelector('a').textContent=on?'Concluir':'Tela cheia'
+  hintControl.getContainer().hidden=!on
+  setTimeout(()=>{miniMap.invalidateSize();if(on&&marker)miniMap.setView(marker.getLatLng(),Math.max(miniMap.getZoom(),14))},60)
+ }
+ const isFullscreen=()=>mapBox.classList.contains('fullscreen')
+ const fullscreenControl=L.control({position:'topleft'})
+ fullscreenControl.onAdd=()=>{const div=L.DomUtil.create('div','leaflet-bar leaflet-control-fullscreen');const a=L.DomUtil.create('a','',div);a.href='#';a.textContent='Tela cheia';a.setAttribute('role','button');L.DomEvent.on(a,'click',event=>{L.DomEvent.stop(event);setFullscreen(!isFullscreen())});L.DomEvent.disableClickPropagation(div);return div}
+ fullscreenControl.addTo(miniMap)
+ const hintControl=L.control({position:'bottomleft'})
+ hintControl.onAdd=()=>{const div=L.DomUtil.create('div','form-map-hint');div.innerHTML='<b>Toque no mapa</b> para marcar a propriedade. Arraste o pin para ajustar. Depois toque em <b>Concluir</b>.';div.hidden=true;L.DomEvent.disableClickPropagation(div);return div}
+ hintControl.addTo(miniMap)
+ miniMap.on('click',event=>{if(!isFullscreen())return setFullscreen(true);placeMarker(event.latlng.lat,event.latlng.lng,'exact')})
+ state.exitMapFullscreen=()=>{if(isFullscreen()){setFullscreen(false);return true}return false}
  const syncFromInputs=()=>{const lat=Number(String(form.lat.value).replace(',','.'));const lng=Number(String(form.lng.value).replace(',','.'));if(form.lat.value&&form.lng.value&&Number.isFinite(lat)&&Number.isFinite(lng)){placeMarker(lat,lng,'exact');miniMap.setView([lat,lng],Math.max(miniMap.getZoom(),12))}}
  form.lat.onchange=syncFromInputs;form.lng.onchange=syncFromInputs
  setTimeout(()=>miniMap.invalidateSize(),60)
  const stopGps=()=>{if(gpsWatch!==null&&navigator.geolocation){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null}}
+ const gpsControl=L.control({position:'topleft'})
+ gpsControl.onAdd=()=>{const div=L.DomUtil.create('div','leaflet-bar leaflet-control-gps');const a=L.DomUtil.create('a','',div);a.href='#';a.textContent='GPS';a.title='Usar minha posição';L.DomEvent.on(a,'click',event=>{L.DomEvent.stop(event);$('#gps-btn',form).click()});L.DomEvent.disableClickPropagation(div);return div}
+ gpsControl.addTo(miniMap)
  $('#gps-btn',form).onclick=()=>{
   const status=$('#gps-status',form)
   if(!navigator.geolocation)return toast('Este navegador não oferece geolocalização.',true)
@@ -342,7 +362,7 @@ function openProducerForm(producer={}){
   try{const {result}=await api(`/api/geocode?municipality=${encodeURIComponent(municipality)}&uf=${encodeURIComponent(form.uf.value)}`);if(!result)toast('Município não encontrado.',true);else{miniMap.setView([result.lat,result.lng],12);if(!marker)placeMarker(result.lat,result.lng,'municipality');toast(`Centralizado em ${result.label.split(',').slice(0,2).join(',')}. Agora marque o ponto exato.`)}}
   catch(error){toast(error.message,true)}finally{button.disabled=false;button.textContent='Centralizar pelo município'}
  }
- const cleanup=()=>{stopGps();miniMap.remove();$('.modal-card').classList.remove('wide')}
+ const cleanup=()=>{stopGps();document.body.classList.remove('map-fullscreen');state.exitMapFullscreen=null;miniMap.remove();$('.modal-card').classList.remove('wide')}
  state.modalCleanup=cleanup
  form.onsubmit=event=>{
   event.preventDefault()
