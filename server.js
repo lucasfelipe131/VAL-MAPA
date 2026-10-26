@@ -47,6 +47,26 @@ const cookies=request=>Object.fromEntries(String(request.headers.cookie||'').spl
 const authenticated=request=>!accessPassword||validSession(cookies(request).mapa_session)
 const loginAttempts=new Map()
 
+// --- base de municípios (IBGE) ---------------------------------------------------
+// Lista embarcada dos 5.570 municípios com código IBGE, UF e coordenadas do centro.
+const municipiosDb=JSON.parse(fs.readFileSync(path.join(root,'data','municipios.json'),'utf8'))
+const municipiosByCode=new Map(municipiosDb.items.map(item=>[item.code,item]))
+const municipiosByUfSlug=new Map(municipiosDb.items.map(item=>[`${item.uf}|${item.slug}`,item]))
+const municipiosBySlug=new Map()
+for(const item of municipiosDb.items){const list=municipiosBySlug.get(item.slug)||[];list.push(item);municipiosBySlug.set(item.slug,list)}
+const slugMunicipio=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+// Padroniza nome, UF e código IBGE do município informado (a planilha pode vir sem UF ou com grafia diferente).
+function enrichMunicipality(data){
+ let match=data.ibgeCode?municipiosByCode.get(data.ibgeCode):null
+ if(!match&&data.municipality){
+  const slug=slugMunicipio(data.municipality)
+  if(data.uf)match=municipiosByUfSlug.get(`${data.uf}|${slug}`)||null
+  else{const candidates=municipiosBySlug.get(slug)||[];if(candidates.length===1)match=candidates[0]}
+ }
+ if(!match)return data
+ return {...data,municipality:match.name,uf:match.uf,ibgeCode:match.code}
+}
+
 // --- dados --------------------------------------------------------------------
 // Histórico de posição: toda mudança de coordenada guarda a posição anterior (até 20),
 // para que um erro de edição ou importação possa ser desfeito pela tela.
@@ -82,7 +102,7 @@ async function importProducers(rows,{insertOnly=false}={}){
  const result={inserted:0,updated:0,skipped:0,rejected:[]}
  for(const [index,raw] of rows.entries()){
   try{
-   const data=normalizeProducer(raw)
+   const data=enrichMunicipality(normalizeProducer(raw))
    const current=(data.externalKey&&byExternal.get(data.externalKey))||byKey.get(keyOf(data))
    if(current&&insertOnly){result.skipped++;continue}
    if(current){
@@ -141,6 +161,12 @@ async function autoImport(){
  }
 }
 await autoImport()
+// Padroniza município/UF/código IBGE dos cadastros antigos (não altera coordenadas nem outros campos).
+for(const producer of await store.all('producers')){
+ if(producer.ibgeCode||!producer.municipality)continue
+ const enriched=enrichMunicipality(producer)
+ if(enriched.ibgeCode)await store.update('producers',producer.id,enriched)
+}
 
 // --- rotas --------------------------------------------------------------------
 async function api(request,response,url){
@@ -170,6 +196,11 @@ async function api(request,response,url){
   const municipality=String(url.searchParams.get('municipality')||'').trim();const uf=String(url.searchParams.get('uf')||'').trim().toUpperCase()
   if(!municipality)throw domainError('Informe o município.')
   return json(response,200,{result:await geocodeMunicipality(municipality,uf)})
+ }
+ if(resource==='municipios'&&method==='GET'){
+  const uf=String(url.searchParams.get('uf')||'').toUpperCase()
+  const items=uf?municipiosDb.items.filter(item=>item.uf===uf):municipiosDb.items
+  return json(response,200,{source:municipiosDb.source,count:items.length,items},{'Cache-Control':'private, max-age=86400'})
  }
  if(resource==='malhas'&&method==='GET'){
   try{
@@ -203,10 +234,10 @@ async function api(request,response,url){
    const result=await importProducers(parsed.producers)
    return json(response,200,{...result,sheet:parsed.sheet,headerLine:parsed.headerLine,fields:parsed.fields,skipped:parsed.skipped})
   }
-  if(method==='POST')return json(response,201,await store.insert('producers',normalizeProducer(await readBody(request))))
+  if(method==='POST')return json(response,201,await store.insert('producers',enrichMunicipality(normalizeProducer(await readBody(request)))))
   if(method==='PUT'&&id){
    const current=await store.get('producers',id);if(!current)throw domainError('Produtor não encontrado.',404)
-   const data=normalizeProducer(await readBody(request))
+   const data=enrichMunicipality(normalizeProducer(await readBody(request)))
    // A edição pela tela não envia a chave externa do lote importado; ela precisa sobreviver.
    return json(response,200,await store.update('producers',id,withLocationHistory(current,{...data,externalKey:data.externalKey||current.externalKey||''},'edição')))
   }

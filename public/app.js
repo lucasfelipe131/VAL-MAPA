@@ -273,8 +273,8 @@ function openProducerForm(producer={}){
  const body=openModal(`<h2>${editing?'Editar produtor':'Novo produtor'}</h2><form id="producer-form">
   <label class="field"><span>Nome *</span><input name="name" required value="${esc(producer.name||'')}"></label>
   <div class="grid-3">
-   <label class="field" style="grid-column:span 2"><span>Município *</span><input name="municipality" required value="${esc(producer.municipality||'')}"></label>
-   <label class="field"><span>UF</span><select name="uf"><option value="">—</option>${options(catalog.ufs.map(uf=>({value:uf,label:uf})),producer.uf)}</select></label>
+   <label class="field"><span>UF *</span><select name="uf" required><option value="">—</option>${options(catalog.ufs.map(uf=>({value:uf,label:uf})),producer.uf)}</select></label>
+   <label class="field" style="grid-column:span 2"><span>Município *</span><select name="municipality" required><option value="">Escolha a UF primeiro</option></select><input type="hidden" name="ibgeCode" value="${esc(producer.ibgeCode||'')}"></label>
   </div>
   <div class="grid-3">
    <label class="field"><span>Região</span><input name="region" list="region-list" value="${esc(producer.region||'')}" placeholder="ex.: Missões"><datalist id="region-list">${[...new Set(state.data.producers.map(p=>p.region).filter(Boolean))].map(r=>`<option value="${esc(r)}">`).join('')}</datalist></label>
@@ -327,6 +327,39 @@ function openProducerForm(producer={}){
  $$('[data-unit-label]',form).forEach(el=>el.textContent=unit)
 
  // Mini-mapa: escolha da localização em tempo real.
+ // Base de municípios: UF → lista de municípios; ao escolher, o mini-mapa carrega o limite do município.
+ state.municipios=state.municipios||api('/api/municipios').then(r=>r.items)
+ let boundaryFeature=null;const boundaryLayer=L.layerGroup()
+ const fillMunicipalities=async(selectedName)=>{
+  const all=await state.municipios;const uf=form.uf.value
+  const list=all.filter(m=>m.uf===uf)
+  const wanted=municipalitySlug(selectedName||'')
+  const current=list.find(m=>m.slug===wanted)
+  form.municipality.innerHTML=uf?`<option value="">Selecione o município</option>${list.map(m=>`<option value="${esc(m.name)}" data-code="${m.code}" data-lat="${m.lat}" data-lng="${m.lng}" ${current&&current.code===m.code?'selected':''}>${esc(m.name)}</option>`).join('')}${selectedName&&!current?`<option value="${esc(selectedName)}" selected>${esc(selectedName)} (não encontrado na base)</option>`:''}`:'<option value="">Escolha a UF primeiro</option>'
+  form.ibgeCode.value=current?current.code:''
+ }
+ const showBoundary=async({center=true}={})=>{
+  boundaryLayer.clearLayers();boundaryFeature=null
+  const option=form.municipality.selectedOptions[0];const uf=form.uf.value
+  if(!option||!option.dataset.code)return
+  const lat=Number(option.dataset.lat),lng=Number(option.dataset.lng)
+  if(center&&!marker)miniMap.setView([lat,lng],11)
+  try{
+   const mesh=await loadMesh(uf)
+   const feature=mesh.features.find(f=>f.properties.code===option.dataset.code)||mesh.features.find(f=>f.properties.slug===municipalitySlug(option.value))
+   if(!feature||form.municipality.selectedOptions[0]!==option)return
+   boundaryFeature=feature
+   const outline=L.geoJSON(feature,{style:{color:'#009f78',weight:2.5,dashArray:'6 4',fillColor:'#00c896',fillOpacity:.07},interactive:false}).addTo(boundaryLayer)
+   if(center)miniMap.fitBounds(outline.getBounds(),{padding:[14,14]})
+   checkInside()
+  }catch(error){$('#gps-status',form).textContent=`Limite do município indisponível: ${error.message}`}
+ }
+ const checkInside=()=>{
+  const status=$('#gps-status',form);if(!boundaryFeature||!marker)return
+  const p=marker.getLatLng();const inside=pointInFeature(p.lat,p.lng,boundaryFeature)
+  status.textContent=inside?`Pin dentro de ${form.municipality.value}.`:`Atenção: o pin está fora do limite de ${form.municipality.value}. Confira o município ou a posição.`
+  status.style.color=inside?'':'#9a6a08'
+ }
  const hasPoint=producer.lat!==null&&producer.lat!==undefined
  const miniMap=L.map('form-map',{zoomControl:true,attributionControl:false}).setView(hasPoint?[producer.lat,producer.lng]:[-15.8,-52],hasPoint?(producer.locationPrecision==='municipality'?11:14):4)
  const miniStreets=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19})
@@ -334,12 +367,17 @@ function openProducerForm(producer={}){
  let miniBase='Mapa';try{miniBase=localStorage.getItem('val-mapa-base')||'Mapa'}catch{}
  ;(miniBase==='Mapa'?miniStreets:miniImagery).addTo(miniMap)
  L.control.layers({'Mapa':miniStreets,'Satélite':miniImagery},null,{position:'topright'}).addTo(miniMap)
+ boundaryLayer.addTo(miniMap)
  let marker=null;let gpsMarker=null;let gpsWatch=null
+ form.uf.onchange=async()=>{await fillMunicipalities('');showBoundary()}
+ form.municipality.onchange=()=>{form.ibgeCode.value=form.municipality.selectedOptions[0]?.dataset.code||'';showBoundary()}
+ fillMunicipalities(producer.municipality||'').then(()=>showBoundary({center:!hasPoint}))
  const placeMarker=(lat,lng,precision='exact')=>{
   if(!marker){marker=L.marker([lat,lng],{draggable:true}).addTo(miniMap);marker.on('dragend',()=>{const p=marker.getLatLng();form.lat.value=p.lat.toFixed(5);form.lng.value=p.lng.toFixed(5);form.locationPrecision.value='exact'})}
   else marker.setLatLng([lat,lng])
   form.lat.value=Number(lat).toFixed(5);form.lng.value=Number(lng).toFixed(5);form.locationPrecision.value=precision
   const badge=$('.form-map-tools .precision',form);if(badge)badge.hidden=precision==='exact'
+  checkInside()
  }
  if(hasPoint)placeMarker(producer.lat,producer.lng,producer.locationPrecision||'exact')
  // Tela cheia: o toque no mapa pequeno abre a tela cheia; na tela cheia, o toque marca a propriedade.
@@ -380,6 +418,8 @@ function openProducerForm(producer={}){
   },error=>{status.textContent='';toast(error.code===1?'Permita o acesso à localização no navegador.':'Não foi possível obter a posição.',true);stopGps();$('#gps-btn',form).textContent='Usar minha posição (GPS)'},{enableHighAccuracy:true,maximumAge:5000,timeout:20000})
  }
  $('#geocode-btn',form).onclick=async()=>{
+  const option=form.municipality.selectedOptions[0]
+  if(option&&option.dataset.code){boundaryLayer.eachLayer(l=>{if(l.getBounds)miniMap.fitBounds(l.getBounds(),{padding:[14,14]})});if(!boundaryLayer.getLayers().length)miniMap.setView([Number(option.dataset.lat),Number(option.dataset.lng)],11);return}
   const municipality=form.municipality.value.trim();if(!municipality)return toast('Informe o município primeiro.',true)
   const button=$('#geocode-btn',form);button.disabled=true;button.textContent='Localizando…'
   try{const {result}=await api(`/api/geocode?municipality=${encodeURIComponent(municipality)}&uf=${encodeURIComponent(form.uf.value)}`);if(!result)toast('Município não encontrado.',true);else{miniMap.setView([result.lat,result.lng],12);if(!marker)placeMarker(result.lat,result.lng,'municipality');toast(`Centralizado em ${result.label.split(',').slice(0,2).join(',')}. Agora marque o ponto exato.`)}}
@@ -616,6 +656,13 @@ function presentationSubset(){
  }).map(p=>p.id)
  const labelsActive=[f.uf&&`UF ${f.uf}`,f.region&&`região ${f.region}`,f.municipality&&`município ${f.municipality}`,f.culture&&(labels.commodities[f.culture]||f.culture),f.consultant&&`consultor ${f.consultant}`,f.priority&&{high:'prioridade alta',medium:'validar',watch:'monitorar',incomplete:'completar dados'}[f.priority],f.season&&`safra ${f.season}`].filter(Boolean)
  return {ids,labelsActive}
+}
+function pointInFeature(lat,lng,feature){
+ const inRing=ring=>{let inside=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const [xi,yi]=ring[i],[xj,yj]=ring[j];if((yi>lat)!==(yj>lat)&&lng<(xj-xi)*(lat-yi)/(yj-yi)+xi)inside=!inside}return inside}
+ const g=feature.geometry;if(!g)return true
+ if(g.type==='Polygon')return inRing(g.coordinates[0])
+ if(g.type==='MultiPolygon')return g.coordinates.some(poly=>inRing(poly[0]))
+ return true
 }
 const municipalitySlug=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 const meshCache={}

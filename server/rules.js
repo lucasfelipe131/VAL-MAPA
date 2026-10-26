@@ -82,6 +82,7 @@ export function normalizeProducer(input={}){
  return {
   name,municipality,uf,region:text(input.region,120),season:text(input.season,20),lat,lng,locationPrecision:precision,areaHa,
   productivityScHa:productivity,freight,
+  ibgeCode:/^\d{7}$/.test(text(input.ibgeCode,7))?text(input.ibgeCode,7):'',
   cultures:cultureList(input.cultures),
   storageCapacityT:storageT,estimatedVolumeT:volumeT,volumeUnit:(input.storageCapacitySc!=null&&input.storageCapacitySc!=='')||(input.estimatedVolumeSc!=null&&input.estimatedVolumeSc!=='')?'sc':volumeUnit,
   relationship:choice(input.relationship,relationshipCodes,'prospect','O status de relacionamento é inválido.'),
