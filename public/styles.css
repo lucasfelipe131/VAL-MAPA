@@ -214,3 +214,7 @@ body.map-fullscreen{overflow:hidden}
 .form-map.fullscreen .leaflet-control-fullscreen a{background:linear-gradient(135deg,#009f78,#00c896 52%,#2d8cff);color:#fff;font-size:15px;line-height:40px;height:40px;padding:0 18px}
 .form-map-hint{background:rgba(7,27,25,.9);color:#fff;padding:10px 14px;border-radius:12px;font-size:14px;max-width:min(420px,calc(100vw - 32px));box-shadow:var(--shadow)}
 .form-map.fullscreen .leaflet-bottom.leaflet-left{bottom:max(14px,env(safe-area-inset-bottom))}
+
+/* Legenda do mapa coroplético por município */
+.choropleth-legend{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+.choropleth-legend i{width:90px;height:12px;border-radius:4px;border:1px solid var(--val-line);background:linear-gradient(90deg,#e6f4ee,#b9e3d1,#7fcbae,#3fae88,#0f8a66,#0e3530)}

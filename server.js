@@ -5,6 +5,7 @@ import {createHmac,timingSafeEqual,randomBytes} from 'node:crypto'
 import {createStore} from './server/store.js'
 import {geocodeMunicipality} from './server/geocode.js'
 import {parseImportFile} from './server/import.js'
+import {municipalityMesh} from './server/malhas.js'
 import {normalizeProducer,normalizeIntent,normalizeMarketRef,normalizeInteraction,scoreProducers,summarize,distanceKm,domainError,tonnesToSacas,commodityLabels,relationshipLabels,intentStatusLabels,interactionKinds,ufs} from './server/rules.js'
 
 const root=path.dirname(new URL(import.meta.url).pathname)
@@ -157,6 +158,10 @@ async function api(request,response,url){
   const municipality=String(url.searchParams.get('municipality')||'').trim();const uf=String(url.searchParams.get('uf')||'').trim().toUpperCase()
   if(!municipality)throw domainError('Informe o município.')
   return json(response,200,{result:await geocodeMunicipality(municipality,uf)})
+ }
+ if(resource==='malhas'&&method==='GET'){
+  const data=await municipalityMesh(id,{dataDir:path.join(root,'.data')})
+  return json(response,200,data,{'Cache-Control':'private, max-age=86400'})
  }
  if(resource==='nearby'&&method==='GET'){
   const lat=Number(url.searchParams.get('lat'));const lng=Number(url.searchParams.get('lng'));const radius=Math.min(1000,Math.max(1,Number(url.searchParams.get('radiusKm')||50)))

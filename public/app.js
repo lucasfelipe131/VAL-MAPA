@@ -592,24 +592,52 @@ function presentationSubset(){
  const labelsActive=[f.uf&&`UF ${f.uf}`,f.region&&`região ${f.region}`,f.municipality&&`município ${f.municipality}`,f.culture&&(labels.commodities[f.culture]||f.culture),f.consultant&&`consultor ${f.consultant}`,f.priority&&{high:'prioridade alta',medium:'validar',watch:'monitorar',incomplete:'completar dados'}[f.priority],f.season&&`safra ${f.season}`].filter(Boolean)
  return {ids,labelsActive}
 }
-function renderPresentationMap(scored){
+const municipalitySlug=value=>String(value??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+const meshCache={}
+const loadMesh=uf=>meshCache[uf]||(meshCache[uf]=api(`/api/malhas/${encodeURIComponent(uf)}`).catch(error=>{delete meshCache[uf];throw error}))
+const choropleth=['#e6f4ee','#b9e3d1','#7fcbae','#3fae88','#0f8a66','#0e3530']
+function renderPresentationMap(scored,producers){
  if(!state.prMap){
   state.prMap=L.map('pr-map',{zoomControl:true,scrollWheelZoom:false}).setView([-15.8,-52],4)
-  const streets=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'})
-  const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagens &copy; Esri'})
+  const streets=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap · Malha municipal IBGE'})
+  const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagens &copy; Esri · Malha municipal IBGE'})
   let saved='Mapa';try{saved=localStorage.getItem('val-mapa-base')||'Mapa'}catch{}
   ;(saved==='Mapa'?streets:imagery).addTo(state.prMap)
-  L.control.layers({'Mapa':streets,'Satélite':imagery},null,{position:'topright'}).addTo(state.prMap)
+  state.prMuniLayer=L.layerGroup().addTo(state.prMap)
   state.prLayer=L.layerGroup().addTo(state.prMap)
+  L.control.layers({'Mapa':streets,'Satélite':imagery},{'Limites municipais':state.prMuniLayer,'Produtores':state.prLayer},{position:'topright'}).addTo(state.prMap)
  }
- state.prLayer.clearLayers()
+ state.prLayer.clearLayers();state.prMuniLayer.clearLayers()
  const items=scored.filter(s=>s.lat!==null&&s.lat!==undefined)
  const max=Math.max(1,...items.map(s=>s.potentialVolumeT||0))
  for(const item of items){
-  L.circleMarker([item.lat,item.lng],{radius:6+Math.sqrt((item.potentialVolumeT||0)/max)*16,color:'#fff',weight:2,fillColor:priorityColor[item.priority.level],fillOpacity:.85})
+  L.circleMarker([item.lat,item.lng],{radius:3+Math.sqrt((item.potentialVolumeT||0)/max)*6,color:'#fff',weight:1,fillColor:priorityColor[item.priority.level],fillOpacity:.9})
    .bindTooltip(`<span class="marker-tip">${esc(item.name)}</span><br>${esc(item.municipality)}/${esc(item.uf||'')} · ${fmt(item.potentialVolumeT)} t (${fmtSc(item.potentialVolumeT)}) · score ${item.score}`,{direction:'top'}).addTo(state.prLayer)
  }
- setTimeout(()=>{state.prMap.invalidateSize();if(items.length)state.prMap.fitBounds(items.map(s=>[s.lat,s.lng]),{padding:[30,30],maxZoom:11})},60)
+ setTimeout(()=>{state.prMap.invalidateSize();if(items.length)state.prMap.fitBounds(items.map(s=>[s.lat,s.lng]),{padding:[30,30],maxZoom:10})},60)
+ // Limites municipais (IBGE) pintados pelo potencial dos produtores filtrados em cada município.
+ const byMunicipality=new Map()
+ for(const s of scored){const key=`${s.uf||''}|${municipalitySlug(s.municipality)}`;const m=byMunicipality.get(key)||{name:s.municipality,producers:0,volume:0,high:0};m.producers++;m.volume+=s.potentialVolumeT||0;m.high+=s.priority.level==='high'?1:0;byMunicipality.set(key,m)}
+ const volumes=[...byMunicipality.values()].map(m=>m.volume).filter(v=>v>0).sort((a,b)=>a-b)
+ const bucket=volume=>{if(!volume||!volumes.length)return -1;const rank=volumes.filter(v=>v<=volume).length/volumes.length;return Math.min(choropleth.length-1,Math.floor(rank*(choropleth.length-1)))}
+ const ufs=[...new Set(producers.map(p=>p.uf).filter(Boolean))]
+ const token=(state.prMeshToken=(state.prMeshToken||0)+1)
+ const status=$('#pr-map-status');if(status)status.textContent=ufs.length?'Carregando limites municipais do IBGE…':''
+ Promise.all(ufs.map(uf=>loadMesh(uf).then(mesh=>({uf,mesh})).catch(()=>null))).then(results=>{
+  if(token!==state.prMeshToken)return
+  let painted=0
+  for(const result of results.filter(Boolean)){
+   L.geoJSON(result.mesh,{
+    style:feature=>{const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`);const b=data?bucket(data.volume):-1;if(data)painted++;return data?{color:'#0e3530',weight:1.2,fillColor:choropleth[Math.max(0,b)],fillOpacity:.55}:{color:'#6c7f78',weight:.6,opacity:.7,fillOpacity:0}},
+    onEachFeature:(feature,layer)=>{
+     const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`)
+     layer.bindTooltip(data?`<span class="marker-tip">${esc(feature.properties.name)}/${result.uf}</span><br>${data.producers} produtor${data.producers===1?'':'es'} · ${fmt(data.volume)} t (${fmtSc(data.volume)})${data.high?` · ${data.high} em prioridade alta`:''}`:`${esc(feature.properties.name)}/${result.uf}`,{sticky:true})
+     if(data)layer.on('click',()=>{const select=$('#prf-municipality');const option=[...select.options].find(o=>municipalitySlug(o.value)===feature.properties.slug);if(option){select.value=option.value;renderPresentation()}})
+    }
+   }).addTo(state.prMuniLayer)
+  }
+  if(status)status.textContent=results.some(Boolean)?`Limites municipais do IBGE · ${painted} município${painted===1?'':'s'} com produtores. Clique em um município para filtrar.`:(ufs.length?'Não foi possível carregar os limites municipais do IBGE agora; o mapa mostra só os produtores.':'')
+ })
 }
 $('#pr-copy').addEventListener('click',async()=>{
  const {ids,labelsActive}=presentationSubset();const agg=aggregates(ids);const {summary,scored}=agg
@@ -622,7 +650,7 @@ function renderPresentation(){
  $('#pr-date').textContent=`Posição em ${new Date().toLocaleDateString('pt-BR',{dateStyle:'long'})} · ${summary.producers} produtores · regra mapa-rules-v1`
  $('#pr-filter-summary').textContent=labelsActive.length?`Filtros aplicados: ${labelsActive.join(' · ')}`:'Carteira completa, sem filtros.'
  $('#pr-kpis').innerHTML=kpiCards(summary)
- renderPresentationMap(scored)
+ renderPresentationMap(scored,agg.producers)
  chart('pr-chart-region',{type:'bar',data:{labels:agg.byRegion.map(r=>r.region),datasets:[{label:'Potencial (t)',data:agg.byRegion.map(r=>Math.round(r.volume)),backgroundColor:'#009f78',borderRadius:6},{label:'Produtores',data:agg.byRegion.map(r=>r.producers),backgroundColor:'#2d8cff',borderRadius:6,yAxisID:'y1'}]},options:{scales:{y:{beginAtZero:true},y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},ticks:{precision:0}}}}})
  const cultures=[...agg.byCulture.entries()].sort((a,b)=>b[1]-a[1])
  chart('pr-chart-culture',{type:'doughnut',data:{labels:cultures.map(([c])=>labels.commodities[c]||c),datasets:[{data:cultures.map(([,v])=>Math.round(v)),backgroundColor:palette,borderWidth:2,borderColor:'#fff'}]},options:{cutout:'58%'}})
