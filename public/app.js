@@ -566,7 +566,9 @@ const kpiCards=summary=>[
 ].map(([label,value,small])=>`<div class="kpi"><span>${label}</span><b>${value}</b>${small?`<small>${small}</small>`:''}</div>`).join('')
 
 // --- apresentação ------------------------------------------------------------------------
-$('#pr-print').addEventListener('click',()=>window.print())
+$('#pr-print').addEventListener('click',()=>{if(state.view!=='presentation')setView('presentation');setTimeout(()=>window.print(),150)})
+window.addEventListener('beforeprint',()=>{state.prMap?.invalidateSize();Object.values(state.charts).forEach(c=>c.resize())})
+window.addEventListener('afterprint',()=>{state.prMap?.invalidateSize();Object.values(state.charts).forEach(c=>c.resize())})
 const prFilterIds=['#prf-uf','#prf-region','#prf-municipality','#prf-culture','#prf-consultant','#prf-priority','#prf-season']
 prFilterIds.forEach(id=>$(id).addEventListener('change',renderPresentation))
 $('#prf-clear').addEventListener('click',()=>{prFilterIds.forEach(id=>$(id).value='');renderPresentation()})
@@ -623,10 +625,11 @@ function renderPresentationMap(scored,producers){
  const ufs=[...new Set(producers.map(p=>p.uf).filter(Boolean))]
  const token=(state.prMeshToken=(state.prMeshToken||0)+1)
  const status=$('#pr-map-status');if(status)status.textContent=ufs.length?'Carregando limites municipais do IBGE…':''
- Promise.all(ufs.map(uf=>loadMesh(uf).then(mesh=>({uf,mesh})).catch(()=>null))).then(results=>{
+ Promise.all(ufs.map(uf=>loadMesh(uf).then(mesh=>({uf,mesh})).catch(error=>({uf,error:error.message})))).then(results=>{
   if(token!==state.prMeshToken)return
   let painted=0
-  for(const result of results.filter(Boolean)){
+  const failures=results.filter(r=>r.error)
+  for(const result of results.filter(r=>r.mesh)){
    L.geoJSON(result.mesh,{
     style:feature=>{const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`);const b=data?bucket(data.volume):-1;if(data)painted++;return data?{color:'#0e3530',weight:1.2,fillColor:choropleth[Math.max(0,b)],fillOpacity:.55}:{color:'#6c7f78',weight:.6,opacity:.7,fillOpacity:0}},
     onEachFeature:(feature,layer)=>{
@@ -636,7 +639,7 @@ function renderPresentationMap(scored,producers){
     }
    }).addTo(state.prMuniLayer)
   }
-  if(status)status.textContent=results.some(Boolean)?`Limites municipais do IBGE · ${painted} município${painted===1?'':'s'} com produtores. Clique em um município para filtrar.`:(ufs.length?'Não foi possível carregar os limites municipais do IBGE agora; o mapa mostra só os produtores.':'')
+  if(status)status.textContent=[results.some(r=>r.mesh)?`Limites municipais do IBGE · ${painted} município${painted===1?'':'s'} com produtores. Clique em um município para filtrar.`:'',failures.length?`Limites indisponíveis para ${failures.map(f=>f.uf).join(', ')}: ${failures[0].error}`:''].filter(Boolean).join(' ')
  })
 }
 $('#pr-copy').addEventListener('click',async()=>{
@@ -660,6 +663,8 @@ function renderPresentation(){
  const regionRows=[]
  for(const r of agg.byRegion){regionRows.push(`<tr style="background:#f8fbfa"><td><b>${esc(r.region)}</b></td><td class="hint">todos</td><td class="num"><b>${r.producers}</b></td><td class="num"><b>${fmt(r.area)}</b></td><td class="num"><b>${fmt(r.volume)}</b></td><td class="num"><b>${fmt(Math.round(r.volume/SC_TONNES))}</b></td><td class="num"><b>${r.high}</b></td></tr>`);for(const m of agg.byMunicipality.filter(m=>m.region===r.region))regionRows.push(`<tr><td></td><td>${esc(m.municipality)}</td><td class="num">${m.producers}</td><td class="num">${fmt(m.area)}</td><td class="num">${fmt(m.volume)}</td><td class="num">${fmt(Math.round(m.volume/SC_TONNES))}</td><td class="num">${m.high}</td></tr>`)}
  $('#pr-regions tbody').innerHTML=regionRows.join('')||'<tr><td colspan="7" class="empty">Sem dados para os filtros escolhidos.</td></tr>'
+ const byIdAll=new Map(state.data.producers.map(p=>[p.id,p]))
+ $('#pr-all tbody').innerHTML=scored.map((s,i)=>{const p=byIdAll.get(s.producerId)||{};return `<tr><td>${i+1}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.municipality)}/${esc(s.uf||'')}</td><td>${esc(p.region||'—')}</td><td>${s.cultures.map(c=>labels.commodities[c]||c).join(', ')||'—'}</td><td class="num">${fmt(s.areaHa)}</td><td class="num">${fmt(s.potentialVolumeT)}</td><td class="num">${fmt(Math.round((s.potentialVolumeT||0)/SC_TONNES))}</td><td>${esc(s.relationshipLabel)}</td><td class="num"><span class="score-pill" style="background:${priorityColor[s.priority.level]}">${s.score}</span></td></tr>`}).join('')||'<tr><td colspan="10" class="empty">Sem dados.</td></tr>'
  $('#pr-top tbody').innerHTML=scored.slice(0,10).map((s,i)=>`<tr><td>${i+1}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.municipality)}/${esc(s.uf||'')}</td><td class="num">${fmt(s.potentialVolumeT)}</td><td class="num">${fmt(Math.round((s.potentialVolumeT||0)/SC_TONNES))}</td><td class="num"><span class="score-pill" style="background:${priorityColor[s.priority.level]}">${s.score}</span></td><td class="wrap">${esc(s.nextAction)}</td></tr>`).join('')||'<tr><td colspan="7" class="empty">Sem dados.</td></tr>'
 }
 

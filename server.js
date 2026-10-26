@@ -63,18 +63,19 @@ async function exportCsv(){
  return `﻿${header.join(';')}\n${lines.join('\n')}\n`
 }
 
-async function importProducers(rows){
+async function importProducers(rows,{insertOnly=false}={}){
  if(!Array.isArray(rows))throw domainError('Envie uma lista de produtores.')
  if(rows.length>5000)throw domainError('Importe no máximo 5.000 linhas por vez.')
  const existing=await store.all('producers')
  const keyOf=p=>`${String(p.name).toLowerCase().trim()}|${String(p.municipality).toLowerCase().trim()}`
  const byKey=new Map(existing.map(p=>[keyOf(p),p]))
  const byExternal=new Map(existing.filter(p=>p.externalKey).map(p=>[p.externalKey,p]))
- const result={inserted:0,updated:0,rejected:[]}
+ const result={inserted:0,updated:0,skipped:0,rejected:[]}
  for(const [index,raw] of rows.entries()){
   try{
    const data=normalizeProducer(raw)
    const current=(data.externalKey&&byExternal.get(data.externalKey))||byKey.get(keyOf(data))
+   if(current&&insertOnly){result.skipped++;continue}
    if(current){
     // Atualização preserva o que já existia quando a planilha não traz o campo.
     const merged={...current}
@@ -122,8 +123,9 @@ async function autoImport(){
     if(batch.approximateLocation&&merged.lat!==undefined&&merged.lng!==undefined&&row.lat===undefined){merged.lat=Number(merged.lat)+jitter(key,0.035);merged.lng=Number(merged.lng)+jitter(`${key}|lng`,0.045);merged.locationPrecision='municipality'}
     return {...merged,externalKey:key}
    })
-   const result=await importProducers(rows)
-   console.log(`Importação automática ${file}: ${result.inserted} novo(s), ${result.updated} atualizado(s), ${result.rejected.length} rejeitado(s)`)
+   // Somente insere: o lote nunca sobrescreve ajustes feitos pela equipe (pin exato, área, notas).
+   const result=await importProducers(rows,{insertOnly:true})
+   console.log(`Importação automática ${file}: ${result.inserted} novo(s), ${result.skipped} já existente(s), ${result.rejected.length} rejeitado(s)`)
    if(result.rejected.length)console.warn(result.rejected.slice(0,10))
   }catch(error){console.error(`Falha na importação automática de ${file}:`,error.message)}
  }
@@ -160,8 +162,10 @@ async function api(request,response,url){
   return json(response,200,{result:await geocodeMunicipality(municipality,uf)})
  }
  if(resource==='malhas'&&method==='GET'){
-  const data=await municipalityMesh(id,{dataDir:path.join(root,'.data')})
-  return json(response,200,data,{'Cache-Control':'private, max-age=86400'})
+  try{
+   const data=await municipalityMesh(id,{dataDir:path.join(root,'.data')})
+   return json(response,200,data,{'Cache-Control':'private, max-age=86400'})
+  }catch(error){console.error(`Malha municipal ${id}:`,error.message);throw error.statusCode?error:domainError(`Falha ao obter a malha do IBGE: ${error.message}`,502)}
  }
  if(resource==='nearby'&&method==='GET'){
   const lat=Number(url.searchParams.get('lat'));const lng=Number(url.searchParams.get('lng'));const radius=Math.min(1000,Math.max(1,Number(url.searchParams.get('radiusKm')||50)))
@@ -183,7 +187,12 @@ async function api(request,response,url){
    return json(response,200,{...result,sheet:parsed.sheet,headerLine:parsed.headerLine,fields:parsed.fields,skipped:parsed.skipped})
   }
   if(method==='POST')return json(response,201,await store.insert('producers',normalizeProducer(await readBody(request))))
-  if(method==='PUT'&&id){const current=await store.get('producers',id);if(!current)throw domainError('Produtor não encontrado.',404);return json(response,200,await store.update('producers',id,normalizeProducer(await readBody(request))))}
+  if(method==='PUT'&&id){
+   const current=await store.get('producers',id);if(!current)throw domainError('Produtor não encontrado.',404)
+   const data=normalizeProducer(await readBody(request))
+   // A edição pela tela não envia a chave externa do lote importado; ela precisa sobreviver.
+   return json(response,200,await store.update('producers',id,{...data,externalKey:data.externalKey||current.externalKey||''}))
+  }
   if(method==='DELETE'&&id){
    if(!await store.remove('producers',id))throw domainError('Produtor não encontrado.',404)
    await store.removeWhere('intents','producerId',id);await store.removeWhere('interactions','producerId',id)

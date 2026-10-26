@@ -9,7 +9,7 @@ const memory=new Map()
 export const slugName=value=>String(value??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 
 async function fetchJson(url,fetchImpl){
- const response=await fetchImpl(url,{headers:{'Accept':'application/json','User-Agent':'VAL-Mapa/1.0'},signal:AbortSignal.timeout(45_000)})
+ const response=await fetchImpl(url,{headers:{'Accept':'application/vnd.geo+json, application/json, */*','User-Agent':'VAL-Mapa/1.0 (mapeamento de produtores)'},signal:AbortSignal.timeout(45_000)})
  if(!response.ok)throw domainError(`IBGE respondeu ${response.status} para ${url}`,502)
  return response.json()
 }

@@ -138,7 +138,11 @@ main{flex:1;display:flex;flex-direction:column}
 .outcome.positive{background:var(--p-high)}.outcome.neutral{background:var(--p-incomplete)}.outcome.negative{background:#c0392b}
 
 /* apresentação */
-.deck{background:#fff;border:1px solid var(--val-line);border-radius:var(--radius);box-shadow:var(--shadow);padding:26px 28px;max-width:1100px;margin:0 auto}
+.deck{background:#fff;border:1px solid var(--val-line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px;width:768px;max-width:100%;margin:0 auto}
+.deck .kpis{grid-template-columns:repeat(4,1fr)}
+.deck .kpi b{font-size:20px}
+.deck .chart-card{min-height:230px}
+.deck .chart-card canvas{max-height:200px}
 .deck-head{display:flex;align-items:center;gap:16px;margin-bottom:18px}
 .deck-head{background:linear-gradient(135deg,#071b19,#0e3530);color:#fff;border-radius:12px;padding:16px 20px}
 .deck-head .hint{color:rgba(215,242,234,.7)}
@@ -178,15 +182,6 @@ main{flex:1;display:flex;flex-direction:column}
  .view{padding:12px}
  .blocks{grid-template-columns:repeat(2,1fr)}
 }
-@media print{
- .topbar,.toolbar,.no-print,#view-map,#view-producers,#view-decision,#view-tracking{display:none!important}
- body{background:#fff}
- .view{padding:0}
- #view-presentation{display:block!important}
- .deck{box-shadow:none;border:0;max-width:none}
- .deck-head{-webkit-print-color-adjust:exact;print-color-adjust:exact}
- .chart-card{break-inside:avoid}
-}
 
 /* Seletor de camada base (Mapa / Satélite) */
 .leaflet-control-layers{border:1px solid var(--val-line)!important;border-radius:12px!important;box-shadow:var(--shadow)!important;font:inherit;padding:6px 10px}
@@ -199,12 +194,11 @@ main{flex:1;display:flex;flex-direction:column}
 .form-map-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
 .pr-map{height:440px;border-radius:12px;overflow:hidden;border:1px solid var(--val-line);background:#e8efec;margin-bottom:8px}
 .legend-items.inline{flex-direction:row;flex-wrap:wrap;gap:14px;margin-bottom:6px}
-.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;max-width:1100px;margin-left:auto;margin-right:auto}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;width:768px;max-width:100%;margin-left:auto;margin-right:auto}
 .filters select{font:inherit;font-weight:600;color:var(--val-text);background:#fff;border:1px solid var(--val-line);border-radius:10px;padding:8px 10px}
 .modal-card.wide{width:min(760px,100%)}
 .precision{font-size:11px;font-weight:700;color:#9a6a08;background:rgba(229,165,40,.16);padding:2px 8px;border-radius:999px}
 .gps-dot{width:14px;height:14px;border-radius:50%;background:#2d8cff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(45,140,255,.25)}
-@media print{.pr-map{height:380px;break-inside:avoid}.filters{display:none}}
 
 /* Mini-mapa em tela cheia para marcar o pin */
 .form-map{cursor:pointer}
@@ -218,3 +212,39 @@ body.map-fullscreen{overflow:hidden}
 /* Legenda do mapa coroplético por município */
 .choropleth-legend{display:inline-flex;align-items:center;gap:8px;font-size:13px}
 .choropleth-legend i{width:90px;height:12px;border-radius:4px;border:1px solid var(--val-line);background:linear-gradient(90deg,#e6f4ee,#b9e3d1,#7fcbae,#3fae88,#0f8a66,#0e3530)}
+
+/* Impressão / exportação em PDF (A4 retrato). O mapa mantém o mesmo tamanho da tela para não reprojetar. */
+@media print{
+ @page{size:A4 portrait;margin:9mm 9mm 11mm}
+ *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+ html,body{background:#fff!important;font-size:10.5px}
+ .topbar,.toolbar,.no-print,.filters,#view-map,#view-producers,#view-decision,#view-tracking,.leaflet-control-container,#toast,#modal{display:none!important}
+ main,.view{display:block!important;padding:0!important}
+ #view-presentation{display:block!important}
+ .deck{box-shadow:none;border:0;width:100%;max-width:none;padding:0 2px;margin:0}
+ .deck-head{padding:12px 16px;margin-bottom:10px;border-radius:8px}
+ .deck-head h2{font-size:15px}
+ .deck-logo{--val-mark-height:34px}
+ .deck .kpis{grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:10px}
+ .kpi{padding:7px 9px;box-shadow:none;border-radius:8px}
+ .kpi span{font-size:8px}.kpi b{font-size:15px!important}.kpi small{font-size:8.5px}
+ h3{font-size:12.5px;margin:12px 0 6px;break-after:avoid}
+ .pr-map{height:440px;border-radius:8px;break-inside:avoid;margin-bottom:4px}
+ .leaflet-container{background:#e8efec}
+ .legend-items.inline{display:flex!important;flex-direction:row!important;flex-wrap:wrap;font-size:9.5px;gap:10px;margin-bottom:2px}
+ .choropleth-legend{font-size:9.5px}
+ #pr-map-status{font-size:9px;margin:0 0 6px}
+ .deck-grid{grid-template-columns:1fr 1fr;gap:8px;break-inside:avoid}
+ .chart-card{min-height:0!important;height:62mm;padding:8px 10px;box-shadow:none;border-radius:8px;break-inside:avoid}
+ .chart-card figcaption{font-size:10px;margin-bottom:2px}
+ .chart-card canvas{max-height:50mm!important}
+ .table-wrap{box-shadow:none;border-radius:6px;overflow:visible}
+ .table{font-size:9.5px}
+ .table.compact th,.table.compact td{padding:4px 6px;font-size:9.5px;white-space:normal}
+ .table thead{display:table-header-group}
+ .table tr{break-inside:avoid}
+ .table th{position:static;font-size:8px}
+ .score-pill{min-width:26px;padding:1px 6px;font-size:9px}
+ .page-break{break-before:page}
+ .hint{font-size:9px}
+}
