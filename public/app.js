@@ -156,7 +156,7 @@ function renderMunicipalities(){
  if(!state.map||!state.map.hasLayer(state.muniLayer))return
  const visible=filteredScored()
  const ufs=[...new Set(visible.map(item=>item.uf).filter(Boolean))]
- paintMunicipalities({layer:state.muniLayer,scored:visible,ufs,statusEl:$('#muni-status'),tokenKey:'mapMeshToken',outlineOnly:true})
+ paintMunicipalities({map:state.map,layer:state.muniLayer,scored:visible,ufs,statusEl:$('#muni-status'),tokenKey:'mapMeshToken',outlineOnly:true})
 }
 $('#plan-toggle').addEventListener('change',event=>{state.plan.active=event.target.checked;$('#plan-radius-field').hidden=!state.plan.active;$('#plan-hint').textContent=state.plan.active?'Clique no mapa para definir o centro. Arraste o raio para ampliar.':'Ative e clique no mapa para definir o centro da visita.';if(!state.plan.active){state.plan.center=null}renderPlan()})
 $('#plan-radius').addEventListener('input',event=>{state.plan.radiusKm=Number(event.target.value);$('#plan-radius-label').textContent=state.plan.radiusKm;renderPlan()})
@@ -349,7 +349,7 @@ function openProducerForm(producer={}){
    const feature=mesh.features.find(f=>f.properties.code===option.dataset.code)||mesh.features.find(f=>f.properties.slug===municipalitySlug(option.value))
    if(!feature||form.municipality.selectedOptions[0]!==option)return
    boundaryFeature=feature
-   const outline=L.geoJSON(feature,{style:{color:'#009f78',weight:2.5,dashArray:'6 4',fillColor:'#00c896',fillOpacity:.07},interactive:false}).addTo(boundaryLayer)
+   const outline=L.geoJSON(feature,{pane:municipalityPane(miniMap),style:{color:'#009f78',weight:2.5,dashArray:'6 4',fillColor:'#00c896',fillOpacity:.07},interactive:false}).addTo(boundaryLayer)
    if(center)miniMap.fitBounds(outline.getBounds(),{padding:[14,14]})
    checkInside()
   }catch(error){$('#gps-status',form).textContent=`Limite do município indisponível: ${error.message}`}
@@ -669,8 +669,11 @@ const meshCache={}
 const loadMesh=uf=>meshCache[uf]||(meshCache[uf]=api(`/api/malhas/${encodeURIComponent(uf)}`).catch(error=>{delete meshCache[uf];throw error}))
 const choropleth=['#e6f4ee','#b9e3d1','#7fcbae','#3fae88','#0f8a66','#0e3530']
 // Desenha os limites municipais nas UFs presentes e pinta os municípios que têm produtores pelo potencial.
-function paintMunicipalities({layer,scored,ufs,statusEl,tokenKey,onPick,outlineOnly=false}){
+// Painel próprio abaixo dos produtores (zIndex 350 < 400 do overlayPane): os limites nunca cobrem os pins.
+function municipalityPane(map){if(!map.getPane('municipios')){const pane=map.createPane('municipios');pane.style.zIndex=350}return 'municipios'}
+function paintMunicipalities({map,layer,scored,ufs,statusEl,tokenKey,onPick,outlineOnly=false}){
  layer.clearLayers()
+ const pane=municipalityPane(map)
  const byMunicipality=new Map()
  for(const s of scored){const key=`${s.uf||''}|${municipalitySlug(s.municipality)}`;const m=byMunicipality.get(key)||{name:s.municipality,producers:0,volume:0,high:0};m.producers++;m.volume+=s.potentialVolumeT||0;m.high+=s.priority.level==='high'?1:0;byMunicipality.set(key,m)}
  const volumes=[...byMunicipality.values()].map(m=>m.volume).filter(v=>v>0).sort((a,b)=>a-b)
@@ -683,10 +686,11 @@ function paintMunicipalities({layer,scored,ufs,statusEl,tokenKey,onPick,outlineO
   let painted=0
   for(const result of results.filter(r=>r.mesh)){
    L.geoJSON(result.mesh,{
+    pane,
     style:feature=>{const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`);if(data)painted++;return data?{color:'#0e3530',weight:1.3,fillColor:outlineOnly?'#00c896':choropleth[bucket(data.volume)],fillOpacity:outlineOnly?.12:.55}:{color:'#4f6660',weight:.7,opacity:.75,fillOpacity:0}},
     onEachFeature:(feature,polygon)=>{
      const data=byMunicipality.get(`${result.uf}|${feature.properties.slug}`)
-     polygon.bindTooltip(data?`<span class="marker-tip">${esc(feature.properties.name)}/${result.uf}</span><br>${data.producers} produtor${data.producers===1?'':'es'} · ${fmt(data.volume)} t (${fmtSc(data.volume)})${data.high?` · ${data.high} em prioridade alta`:''}`:`${esc(feature.properties.name)}/${result.uf}`,{sticky:true})
+     polygon.bindTooltip(data?`<span class="marker-tip">${esc(feature.properties.name)}/${result.uf}</span><br>${data.producers} produtor${data.producers===1?'':'es'} · ${fmt(data.volume)} t (${fmtSc(data.volume)})${data.high?` · ${data.high} em prioridade alta`:''}`:`${esc(feature.properties.name)}/${result.uf}`,{sticky:true,direction:'top',offset:[0,-8]})
      if(data&&onPick)polygon.on('click',()=>onPick(feature.properties,result.uf))
     }
    }).addTo(layer)
@@ -714,7 +718,7 @@ function renderPresentationMap(scored,producers){
    .bindTooltip(`<span class="marker-tip">${esc(item.name)}</span><br>${esc(item.municipality)}/${esc(item.uf||'')} · ${fmt(item.potentialVolumeT)} t (${fmtSc(item.potentialVolumeT)}) · score ${item.score}`,{direction:'top'}).addTo(state.prLayer)
  }
  setTimeout(()=>{state.prMap.invalidateSize();if(items.length)state.prMap.fitBounds(items.map(s=>[s.lat,s.lng]),{padding:[30,30],maxZoom:10})},60)
- paintMunicipalities({layer:state.prMuniLayer,scored,ufs:[...new Set(producers.map(p=>p.uf).filter(Boolean))],statusEl:$('#pr-map-status'),tokenKey:'prMeshToken',onPick:props=>{const select=$('#prf-municipality');const option=[...select.options].find(o=>municipalitySlug(o.value)===props.slug);if(option){select.value=option.value;renderPresentation()}}})
+ paintMunicipalities({map:state.prMap,layer:state.prMuniLayer,scored,ufs:[...new Set(producers.map(p=>p.uf).filter(Boolean))],statusEl:$('#pr-map-status'),tokenKey:'prMeshToken',onPick:props=>{const select=$('#prf-municipality');const option=[...select.options].find(o=>municipalitySlug(o.value)===props.slug);if(option){select.value=option.value;renderPresentation()}}})
 }
 $('#pr-copy').addEventListener('click',async()=>{
  const {ids,labelsActive}=presentationSubset();const agg=aggregates(ids);const {summary,scored}=agg
