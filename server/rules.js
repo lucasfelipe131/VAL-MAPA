@@ -14,6 +14,8 @@ const intentStatuses=new Set(Object.keys(intentStatusLabels))
 const interactionCodes=new Set(Object.keys(interactionKinds))
 const priceUnits=new Set(['BRL/sc_60kg','BRL/t'])
 
+export const SC_TONNES=0.06 // uma saca de 60 kg
+export const tonnesToSacas=value=>value===null||value===undefined?null:Math.round(Number(value)/SC_TONNES)
 export const domainError=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode})
 const text=(value,max=240)=>String(value??'').normalize('NFKC').trim().slice(0,max)
 const number=value=>{
@@ -62,14 +64,20 @@ export function normalizeProducer(input={}){
  if((lat===null)!==(lng===null))throw domainError('Informe latitude e longitude juntas ou deixe ambas vazias.')
  if(lat!==null&&(lat<-34.5||lat>6||lng<-74.5||lng>-28))throw domainError('As coordenadas precisam estar dentro do Brasil.')
  const areaHa=number(input.areaHa);if(areaHa!==null&&areaHa<0)throw domainError('A área não pode ser negativa.')
- const storageT=number(input.storageCapacityT);if(storageT!==null&&storageT<0)throw domainError('A armazenagem não pode ser negativa.')
- const volumeT=number(input.estimatedVolumeT);if(volumeT!==null&&volumeT<0)throw domainError('O volume estimado não pode ser negativo.')
+ // Unidade de informação do produtor: toneladas ou sacas de 60 kg. O cálculo interno é sempre em toneladas.
+ const unitRaw=slug(input.volumeUnit).replace(/\s+/g,'_')
+ const volumeUnit=/^(sc|sc_60kg|sacas?|sacos?)$/.test(unitRaw)?'sc':'t'
+ const factor=volumeUnit==='sc'?SC_TONNES:1
+ const storageRaw=number(input.storageCapacitySc)!==null?number(input.storageCapacitySc)*SC_TONNES:number(input.storageCapacityT)!==null?number(input.storageCapacityT)*factor:null
+ const volumeRaw=number(input.estimatedVolumeSc)!==null?number(input.estimatedVolumeSc)*SC_TONNES:number(input.estimatedVolumeT)!==null?number(input.estimatedVolumeT)*factor:null
+ const storageT=storageRaw===null?null:Number(storageRaw.toFixed(3));if(storageT!==null&&storageT<0)throw domainError('A armazenagem não pode ser negativa.')
+ const volumeT=volumeRaw===null?null:Number(volumeRaw.toFixed(3));if(volumeT!==null&&volumeT<0)throw domainError('O volume estimado não pode ser negativo.')
  const lastContactAt=input.lastContactAt?isoDate(input.lastContactAt):null
  if(input.lastContactAt&&!lastContactAt)throw domainError('A data do último contato é inválida.')
  return {
   name,municipality,uf,lat,lng,areaHa,
   cultures:cultureList(input.cultures),
-  storageCapacityT:storageT,estimatedVolumeT:volumeT,
+  storageCapacityT:storageT,estimatedVolumeT:volumeT,volumeUnit:(input.storageCapacitySc!=null&&input.storageCapacitySc!=='')||(input.estimatedVolumeSc!=null&&input.estimatedVolumeSc!=='')?'sc':volumeUnit,
   relationship:choice(input.relationship,relationshipCodes,'prospect','O status de relacionamento é inválido.'),
   consultant:text(input.consultant,120),phone:text(input.phone,40),
   lastContactAt,notes:text(input.notes,3000),

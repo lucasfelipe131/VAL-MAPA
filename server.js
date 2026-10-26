@@ -4,7 +4,7 @@ import path from 'node:path'
 import {createHmac,timingSafeEqual,randomBytes} from 'node:crypto'
 import {createStore} from './server/store.js'
 import {geocodeMunicipality} from './server/geocode.js'
-import {normalizeProducer,normalizeIntent,normalizeMarketRef,normalizeInteraction,scoreProducers,summarize,distanceKm,domainError,commodityLabels,relationshipLabels,intentStatusLabels,interactionKinds,ufs} from './server/rules.js'
+import {normalizeProducer,normalizeIntent,normalizeMarketRef,normalizeInteraction,scoreProducers,summarize,distanceKm,domainError,tonnesToSacas,commodityLabels,relationshipLabels,intentStatusLabels,interactionKinds,ufs} from './server/rules.js'
 
 const root=path.dirname(new URL(import.meta.url).pathname)
 const port=Number(process.env.PORT||8080)
@@ -56,8 +56,8 @@ const csvCell=value=>{const raw=value===null||value===undefined?'':String(value)
 async function exportCsv(){
  const {producers,scored}=await bootstrap()
  const byId=new Map(scored.map(item=>[item.producerId,item]))
- const header=['nome','municipio','uf','latitude','longitude','area_ha','culturas','armazenagem_t','volume_estimado_t','relacionamento','consultor','telefone','ultimo_contato','score','prioridade','proxima_acao']
- const lines=producers.map(p=>{const s=byId.get(p.id)||{};return [p.name,p.municipality,p.uf,p.lat,p.lng,p.areaHa,p.cultures.map(c=>commodityLabels[c]||c).join(' | '),p.storageCapacityT,p.estimatedVolumeT,relationshipLabels[p.relationship]||p.relationship,p.consultant,p.phone,p.lastContactAt?p.lastContactAt.slice(0,10):'',s.score,s.priority?.label,s.nextAction].map(csvCell).join(';')})
+ const header=['nome','municipio','uf','latitude','longitude','area_ha','culturas','armazenagem_t','volume_estimado_t','armazenagem_sc','volume_estimado_sc','unidade_informada','relacionamento','consultor','telefone','ultimo_contato','score','prioridade','proxima_acao']
+ const lines=producers.map(p=>{const s=byId.get(p.id)||{};return [p.name,p.municipality,p.uf,p.lat,p.lng,p.areaHa,p.cultures.map(c=>commodityLabels[c]||c).join(' | '),p.storageCapacityT,p.estimatedVolumeT,tonnesToSacas(p.storageCapacityT),tonnesToSacas(p.estimatedVolumeT),p.volumeUnit==='sc'?'sacas':'toneladas',relationshipLabels[p.relationship]||p.relationship,p.consultant,p.phone,p.lastContactAt?p.lastContactAt.slice(0,10):'',s.score,s.priority?.label,s.nextAction].map(csvCell).join(';')})
  return `﻿${header.join(';')}\n${lines.join('\n')}\n`
 }
 

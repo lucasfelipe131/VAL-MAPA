@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {normalizeProducer,normalizeIntent,normalizeMarketRef,scoreProducers,summarize,distanceKm,priorityFor} from '../server/rules.js'
+import {normalizeProducer,normalizeIntent,normalizeMarketRef,scoreProducers,summarize,distanceKm,priorityFor,tonnesToSacas} from '../server/rules.js'
 
 const now=new Date('2026-10-26T12:00:00Z')
 const day=86_400_000
@@ -79,4 +79,16 @@ test('distanceKm e priorityFor',()=>{
  const km=distanceKm({lat:-28.3878,lng:-53.9149},{lat:-28.6387,lng:-53.6063})
  assert.ok(km>35&&km<45,`distância Ijuí–Cruz Alta ~41 km, obtido ${km}`)
  assert.equal(priorityFor(80).level,'high');assert.equal(priorityFor(60).level,'medium');assert.equal(priorityFor(40).level,'watch');assert.equal(priorityFor(10).level,'incomplete')
+})
+
+test('normalizeProducer aceita volumes em sacas de 60 kg e guarda a unidade informada',()=>{
+ const inSacas=normalizeProducer({name:'A',municipality:'B',volumeUnit:'sc',storageCapacityT:'8.000',estimatedVolumeT:'16.000'})
+ assert.equal(inSacas.storageCapacityT,480)
+ assert.equal(inSacas.estimatedVolumeT,960)
+ assert.equal(inSacas.volumeUnit,'sc')
+ const csv=normalizeProducer({name:'A',municipality:'B',storageCapacitySc:'1000',estimatedVolumeSc:'2500'})
+ assert.equal(csv.storageCapacityT,60);assert.equal(csv.estimatedVolumeT,150);assert.equal(csv.volumeUnit,'sc')
+ const tonnes=normalizeProducer({name:'A',municipality:'B',storageCapacityT:'3000',estimatedVolumeT:'3900'})
+ assert.equal(tonnes.estimatedVolumeT,3900);assert.equal(tonnes.volumeUnit,'t')
+ assert.equal(tonnesToSacas(60),1000)
 })

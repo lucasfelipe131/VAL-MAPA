@@ -7,6 +7,8 @@ const fmtDate=value=>value?new Date(value).toLocaleDateString('pt-BR'):'—'
 const fmtMoney=(value,unit)=>value===null||value===undefined?'—':`R$ ${Number(value).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}/${unit==='BRL/t'?'t':'sc'}`
 const priorityColor={high:'#009f78',medium:'#2d8cff',watch:'#e5a528',incomplete:'#9aa8a3'}
 const palette=['#009f78','#2d8cff','#c8f25e','#e5a528','#14ada7','#8e7cc3','#f07c5c','#6c7f78','#00c896','#1b6fd6','#9aa8a3','#b85c9e']
+const SC_TONNES=0.06
+const fmtSc=tonnes=>tonnes===null||tonnes===undefined?'—':`${fmt(Math.round(tonnes/SC_TONNES))} sc`
 const relationshipColor={prospect:'#9aa8a3',contact:'#e5a528',active:'#2d8cff',partner:'#009f78',inactive:'#c0392b'}
 
 const state={data:null,view:'map',map:null,layer:null,planLayer:null,plan:{active:false,center:null,radiusKm:50},charts:{},sort:{key:'score',dir:-1},selected:null}
@@ -163,7 +165,7 @@ function showDetail(producerId){
  box.innerHTML=`<button class="close" aria-label="Fechar" data-close>×</button>
   <h2>${esc(item.name)}</h2>
   <div class="meta">${esc(item.municipality)}/${esc(item.uf||'')} · <span class="badge" style="background:${relationshipColor[item.relationship]}22;color:${relationshipColor[item.relationship]}">${esc(item.relationshipLabel)}</span>${producer.consultant?` · ${esc(producer.consultant)}`:''}</div>
-  <div class="score-row">${scoreRing(item.score,item.priority.level)}<div><b>${esc(item.priority.label)}</b><div class="meta">${fmt(item.areaHa)} ha · potencial <b>${fmt(item.potentialVolumeT)} t</b>${producer.storageCapacityT?` · armazena ${fmt(producer.storageCapacityT)} t`:''}</div><div class="cultures">${item.cultures.map(c=>`<span class="chip">${esc(labels.commodities[c]||c)}</span>`).join('')}</div></div></div>
+  <div class="score-row">${scoreRing(item.score,item.priority.level)}<div><b>${esc(item.priority.label)}</b><div class="meta">${fmt(item.areaHa)} ha · potencial <b>${fmt(item.potentialVolumeT)} t</b> (${fmtSc(item.potentialVolumeT)})${producer.storageCapacityT?` · armazena ${fmt(producer.storageCapacityT)} t (${fmtSc(producer.storageCapacityT)})`:''}</div><div class="cultures">${item.cultures.map(c=>`<span class="chip">${esc(labels.commodities[c]||c)}</span>`).join('')}</div></div></div>
   <div class="blocks"><div>Potencial<b>${item.blocks.potential}/30</b></div><div>Relação<b>${item.blocks.readiness}/25</b></div><div>Mercado<b>${item.blocks.market}/30</b></div><div>Janela<b>${item.blocks.timing}/15</b></div></div>
   <div class="next-action">→ ${esc(item.nextAction)}</div>
   ${item.intent?`<div class="meta">Intenção: <b>${esc(item.intent.direction==='sell'?'venda':'compra')} de ${fmt(item.intent.volumeT)} t de ${esc(item.intent.commodityLabel)}</b> · ${esc(item.intent.statusLabel)} · alvo ${fmtMoney(item.intent.targetPrice,item.intent.priceUnit)}${item.marketReference?` · cotação ${fmtMoney(item.marketReference.price,item.marketReference.priceUnit)} (${esc(item.marketReference.region)}, ${esc(item.marketReference.freshness)})`:''}</div>`:''}
@@ -201,7 +203,7 @@ function renderProducers(){
   <td><a href="#" data-detail="${p.id}"><b>${esc(p.name)}</b></a>${p.lat===null||p.lat===undefined?' <span class="badge incomplete" title="Sem coordenadas">sem mapa</span>':''}</td>
   <td>${esc(p.municipality)}${p.uf?`/${esc(p.uf)}`:''}</td>
   <td><div class="cultures">${p.cultures.map(c=>`<span class="chip">${esc(labels.commodities[c]||c)}</span>`).join('')}</div></td>
-  <td class="num">${fmt(p.areaHa)}</td><td class="num">${fmt(p.potentialVolumeT)}</td>
+  <td class="num">${fmt(p.areaHa)}</td><td class="num" title="${fmtSc(p.potentialVolumeT)}">${fmt(p.potentialVolumeT)}</td>
   <td><span class="badge" style="background:${relationshipColor[p.relationship]}22;color:${relationshipColor[p.relationship]}">${esc(labels.relationships[p.relationship]||p.relationship)}</span></td>
   <td>${fmtDate(p.lastContactAt)}</td>
   <td class="num"><span class="score-pill" style="background:${priorityColor[p.priority?.level||'incomplete']}">${p.score??'—'}</span></td>
@@ -212,7 +214,7 @@ $('#p-new').addEventListener('click',()=>openProducerForm())
 $('#p-import').addEventListener('click',openImport)
 $('#p-more').addEventListener('click',event=>{event.stopPropagation();$('#p-more-menu').hidden=!$('#p-more-menu').hidden})
 document.addEventListener('click',()=>{$('#p-more-menu').hidden=true})
-$('#p-template').addEventListener('click',()=>download('modelo-val-mapa.csv','nome;municipio;uf;latitude;longitude;area_ha;culturas;armazenagem_t;volume_estimado_t;relacionamento;consultor;telefone;ultimo_contato;observacoes\nFazenda Exemplo;Ijuí;RS;-28.3878;-53.9149;1200;soja, milho;3000;3900;ativo;Ana;(55) 99999-0000;2026-10-20;Produtor com armazenagem própria\n','text/csv'))
+$('#p-template').addEventListener('click',()=>download('modelo-val-mapa.csv','nome;municipio;uf;latitude;longitude;area_ha;culturas;armazenagem_t;volume_estimado_t;armazenagem_sc;volume_estimado_sc;relacionamento;consultor;telefone;ultimo_contato;observacoes\nFazenda Exemplo;Ijuí;RS;-28.3878;-53.9149;1200;soja, milho;3000;3900;;;ativo;Ana;(55) 99999-0000;2026-10-20;Produtor com armazenagem própria\nSítio Exemplo em sacas;Cruz Alta;RS;;;320;soja;;;8000;16000;em contato;Ana;;;Valores informados em sacas de 60 kg\n','text/csv'))
 $('#p-example').addEventListener('click',()=>{if(confirm('Carregar 14 produtores fictícios de exemplo, com intenções, cotações e interações? Você pode apagar tudo depois.'))run(()=>api('/api/example',{method:'POST'}),'Dados de exemplo carregados.').then(()=>{renderMap.fitted=false;renderMap()})})
 $('#p-reset').addEventListener('click',()=>{const typed=prompt('Isso apaga TODOS os produtores, intenções, cotações e interações. Digite APAGAR TUDO para confirmar.');if(typed==='APAGAR TUDO')run(()=>api('/api/reset',{method:'POST',body:{confirm:typed}}),'Dados apagados.')})
 $('#p-geocode').addEventListener('click',async()=>{
@@ -240,6 +242,8 @@ const producerOptions=selected=>options([...state.data.producers].sort((a,b)=>a.
 
 function openProducerForm(producer={}){
  const {catalog}=state.data;const editing=Boolean(producer.id)
+ const unit=producer.volumeUnit==='sc'?'sc':'t'
+ const inUnit=(tonnes,u)=>tonnes===null||tonnes===undefined?'':u==='sc'?String(Math.round(tonnes/SC_TONNES)):String(tonnes)
  const body=openModal(`<h2>${editing?'Editar produtor':'Novo produtor'}</h2><form id="producer-form">
   <label class="field"><span>Nome *</span><input name="name" required value="${esc(producer.name||'')}"></label>
   <div class="grid-3">
@@ -253,8 +257,12 @@ function openProducerForm(producer={}){
   </div>
   <div class="grid-3">
    <label class="field"><span>Área (ha)</span><input name="areaHa" inputmode="decimal" value="${producer.areaHa??''}"></label>
-   <label class="field"><span>Armazenagem (t)</span><input name="storageCapacityT" inputmode="decimal" value="${producer.storageCapacityT??''}"></label>
-   <label class="field"><span>Volume estimado (t)</span><input name="estimatedVolumeT" inputmode="decimal" value="${producer.estimatedVolumeT??''}" placeholder="vazio = área × 3"></label>
+   <label class="field"><span>Armazenagem (<span data-unit-label>t</span>)</span><input name="storageCapacityT" inputmode="decimal" value="${inUnit(producer.storageCapacityT,unit)}"></label>
+   <label class="field"><span>Volume estimado (<span data-unit-label>t</span>)</span><input name="estimatedVolumeT" inputmode="decimal" value="${inUnit(producer.estimatedVolumeT,unit)}" placeholder="vazio = área × 3 t"></label>
+  </div>
+  <div class="grid-3">
+   <label class="field"><span>Unidade de volume</span><select name="volumeUnit"><option value="t" ${unit==='t'?'selected':''}>Toneladas (t)</option><option value="sc" ${unit==='sc'?'selected':''}>Sacas de 60 kg (sc)</option></select></label>
+   <p class="hint" style="grid-column:span 2;align-self:end;margin:0">1 saca = 60 kg. O score usa toneladas; os valores em sacas são convertidos automaticamente (1.000 sc = 60 t).</p>
   </div>
   <div class="field"><span>Culturas</span><div class="cultures" style="gap:8px">${catalog.commodities.map(c=>`<label class="toggle"><input type="checkbox" name="cultures" value="${c.value}" ${(producer.cultures||[]).includes(c.value)?'checked':''}><span>${esc(c.label)}</span></label>`).join('')}</div></div>
   <div class="grid-3">
@@ -268,6 +276,14 @@ function openProducerForm(producer={}){
  </form>`)
  const form=$('#producer-form',body)
  $('[data-cancel]',form).onclick=closeModal
+ form.volumeUnit.onchange=()=>{
+  // Converte os valores já digitados para a nova unidade, para o usuário não precisar refazer a conta.
+  const to=form.volumeUnit.value
+  for(const name of ['storageCapacityT','estimatedVolumeT']){const raw=Number(String(form[name].value).replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.'));if(form[name].value&&Number.isFinite(raw))form[name].value=to==='sc'?String(Math.round(raw/SC_TONNES)):String(Number((raw*SC_TONNES).toFixed(2)))}
+  $$('[data-unit-label]',form).forEach(el=>el.textContent=to)
+  form.estimatedVolumeT.placeholder=to==='sc'?'vazio = área × 50 sc':'vazio = área × 3 t'
+ }
+ $$('[data-unit-label]',form).forEach(el=>el.textContent=unit);form.estimatedVolumeT.placeholder=unit==='sc'?'vazio = área × 50 sc':'vazio = área × 3 t'
  $('#geocode-btn',form).onclick=async()=>{
   const municipality=form.municipality.value.trim();if(!municipality)return toast('Informe o município primeiro.',true)
   const button=$('#geocode-btn',form);button.disabled=true;button.textContent='Localizando…'
@@ -361,7 +377,7 @@ function parseCsv(text){
  if(cell||row.length){row.push(cell);rows.push(row)}
  return rows.filter(r=>r.some(c=>c.trim()))
 }
-const headerMap={nome:'name',name:'name',produtor:'name',municipio:'municipality',município:'municipality',cidade:'municipality',uf:'uf',estado:'uf',latitude:'lat',lat:'lat',longitude:'lng',lng:'lng',lon:'lng',area_ha:'areaHa',area:'areaHa','área':'areaHa','área (ha)':'areaHa',culturas:'cultures',cultura:'cultures',armazenagem_t:'storageCapacityT',armazenagem:'storageCapacityT',volume_estimado_t:'estimatedVolumeT',volume:'estimatedVolumeT',potencial:'estimatedVolumeT',relacionamento:'relationship',status:'relationship',consultor:'consultant',telefone:'phone',ultimo_contato:'lastContactAt','último contato':'lastContactAt',observacoes:'notes','observações':'notes',id:'externalKey',codigo:'externalKey','código':'externalKey'}
+const headerMap={nome:'name',name:'name',produtor:'name',municipio:'municipality',município:'municipality',cidade:'municipality',uf:'uf',estado:'uf',latitude:'lat',lat:'lat',longitude:'lng',lng:'lng',lon:'lng',area_ha:'areaHa',area:'areaHa','área':'areaHa','área (ha)':'areaHa',culturas:'cultures',cultura:'cultures',armazenagem_t:'storageCapacityT',armazenagem:'storageCapacityT',armazenagem_sc:'storageCapacitySc',armazenagem_sacas:'storageCapacitySc',volume_estimado_t:'estimatedVolumeT',volume:'estimatedVolumeT',volume_estimado_sc:'estimatedVolumeSc',volume_sacas:'estimatedVolumeSc',sacas:'estimatedVolumeSc',unidade:'volumeUnit',unidade_volume:'volumeUnit',potencial:'estimatedVolumeT',relacionamento:'relationship',status:'relationship',consultor:'consultant',telefone:'phone',ultimo_contato:'lastContactAt','último contato':'lastContactAt',observacoes:'notes','observações':'notes',id:'externalKey',codigo:'externalKey','código':'externalKey'}
 const relationshipAlias={prospecto:'prospect',prospect:'prospect','em contato':'contact',contato:'contact',ativo:'active','cliente ativo':'active',cliente:'active',parceiro:'partner',partner:'partner',inativo:'inactive',inactive:'inactive'}
 function csvToRows(text){
  const [header,...lines]=parseCsv(text.replace(/^﻿/,''))
@@ -370,7 +386,7 @@ function csvToRows(text){
 }
 function openImport(){
  const body=openModal(`<h2>Importar produtores (CSV)</h2>
-  <p class="hint">Colunas reconhecidas: nome, município, uf, latitude, longitude, area_ha, culturas, armazenagem_t, volume_estimado_t, relacionamento, consultor, telefone, ultimo_contato, observações. Produtores com mesmo nome e município são atualizados.</p>
+  <p class="hint">Colunas reconhecidas: nome, município, uf, latitude, longitude, area_ha, culturas, armazenagem_t, volume_estimado_t (ou armazenagem_sc e volume_estimado_sc em sacas de 60 kg), relacionamento, consultor, telefone, ultimo_contato, observações. Produtores com mesmo nome e município são atualizados.</p>
   <form id="import-form">
    <label class="field"><span>Arquivo CSV</span><input type="file" name="file" accept=".csv,text/csv"></label>
    <label class="field"><span>ou cole o conteúdo</span><textarea name="text" placeholder="nome;municipio;uf;..."></textarea></label>
