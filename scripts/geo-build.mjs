@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Gera data/geo/regiao-slg.ndjson.gz, a base do motor geo (server/geo-inteligencia.js).
+// Gera data/geo/regiao-missoes.ndjson.gz, a base do motor geo (server/geo-inteligencia.js).
 //
 // Entradas:
 //   --imoveis  dados/imoveis-regiao.js do "mapa slg cvale" (window.IMOVEIS_REGIAO = [...]), gerado por
@@ -17,10 +17,10 @@ import vm from 'node:vm'
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []))
 if (!args.imoveis || !args.mercado) {
-  console.error('Uso: node scripts/geo-build.mjs --imoveis <imoveis-regiao.js> --mercado <mercado.json> [--saida data/geo/regiao-slg.ndjson.gz]')
+  console.error('Uso: node scripts/geo-build.mjs --imoveis <imoveis-regiao.js> --mercado <mercado.json> [--saida data/geo/regiao-missoes.ndjson.gz]')
   process.exit(1)
 }
-const saida = args.saida || path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'data', 'geo', 'regiao-slg.ndjson.gz')
+const saida = args.saida || path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'data', 'geo', 'regiao-missoes.ndjson.gz')
 
 const ctx = { window: {} }
 vm.runInNewContext(fs.readFileSync(args.imoveis, 'utf8'), ctx)
@@ -28,9 +28,14 @@ const camadas = ctx.window.IMOVEIS_REGIAO || []
 const mercado = JSON.parse(fs.readFileSync(args.mercado, 'utf8'))
 const cabecalhoFonte = (fs.readFileSync(args.imoveis, 'utf8').match(/^\/\*([\s\S]*?)\*\//) || [])[1]?.trim() || ''
 
+// Missões: região de São Luiz Gonzaga mais as microrregiões de Santo Ângelo e Cerro Largo (IBGE)
 const MUNICIPIOS = {
   '4302501': 'Bossoroca', '4303301': 'Caibaté', '4306353': 'Dezesseis de Novembro', '4308656': 'Garruchos', '4314555': 'Pirapó',
-  '4315958': 'Rolador', '4317707': 'Santo Antônio das Missões', '4318903': 'São Luiz Gonzaga', '4319208': 'São Nicolau', '4319158': 'São Miguel das Missões'
+  '4315958': 'Rolador', '4317707': 'Santo Antônio das Missões', '4318903': 'São Luiz Gonzaga', '4319208': 'São Nicolau', '4319158': 'São Miguel das Missões',
+  '4303707': 'Campina das Missões', '4305009': 'Catuípe', '4305207': 'Cerro Largo', '4306932': 'Entre-Ijuís', '4307831': 'Eugênio de Castro',
+  '4309001': 'Giruá', '4309506': 'Guarani das Missões', '4312179': 'Mato Queimado', '4315107': 'Porto Xavier', '4316303': 'Roque Gonzales',
+  '4316477': 'Salvador das Missões', '4317509': 'Santo Ângelo', '4319307': 'São Paulo das Missões', '4319372': 'São Pedro do Butiá',
+  '4320321': 'Senador Salgado Filho', '4320578': 'Sete de Setembro', '4322343': 'Ubiretama', '4323754': 'Vitória das Missões'
 }
 
 // ponto garantidamente dentro do polígono (para o pin)
@@ -73,7 +78,7 @@ for (const c of camadas) {
   }
 }
 const cab = {
-  v: 1, geradoEm: new Date().toISOString(), regiao: 'São Luiz Gonzaga (RS) e entorno',
+  v: 1, geradoEm: new Date().toISOString(), regiao: 'Missões (RS): regiões de São Luiz Gonzaga, Santo Ângelo e Cerro Largo',
   fontes: [
     'CAR: GeoServer público do SICAR (camada sicar:sicar_imoveis_rs), sem cancelados',
     'Área consolidada: SICAR, base de downloads do RS (RS_AREA_CONSOLIDADA.csv)',

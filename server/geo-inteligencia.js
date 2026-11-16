@@ -2,7 +2,7 @@
 // potencial por imóvel calibrado pelo IBGE e vínculo de áreas a produtores.
 //
 // Módulo independente: não altera produtores, intenções, interações nem o motor mapa-rules-v1.
-// Os vínculos ficam na coleção própria `geo_links`. A base (data/geo/regiao-slg.ndjson.gz) é gerada
+// Os vínculos ficam na coleção própria `geo_links`. A base (data/geo/regiao-missoes.ndjson.gz) é gerada
 // por scripts/geo-build.mjs e só é carregada na primeira chamada a /api/geo (não atrasa o /live).
 import fs from 'node:fs'
 import zlib from 'node:zlib'
@@ -29,26 +29,69 @@ export function normMats(value) {
 }
 
 // Nomes: sem acento, minúsculas, sem palavras genéricas de imóvel. "Fazenda São José – Gleba 2 – João Costa Beber"
-// vira [sao, jose, joao, costa, beber]. Partículas (de, da, dos…) e números saem.
-const GENERICOS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'em', 'fazenda', 'faz', 'fda', 'sitio', 'estancia', 'granja', 'chacara', 'parte', 'gleba', 'lote', 'area', 'parcela', 'remanescente', 'imovel', 'rural', 'agropecuaria', 'ltda', 'me', 'epp', 'sa', 'outros', 'outro', 'espolio', 'e/ou', 'matricula', 'mat', 'n'])
+// vira [sao, jose, joao, costa, beber]. Partículas (de, da, dos…), números e palavras que não identificam a pessoa
+// ("Família Seibt", "Grupo Jaeger", "Genor Brum Filho") saem dos dois lados.
+const GENERICOS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'em', 'fazenda', 'faz', 'fda', 'sitio', 'estancia', 'granja', 'chacara', 'parte', 'gleba', 'lote', 'area', 'parcela', 'remanescente', 'imovel', 'rural', 'agropecuaria', 'ltda', 'me', 'epp', 'sa', 'outros', 'outro', 'espolio', 'e/ou', 'matricula', 'mat', 'n',
+  'familia', 'grupo', 'irmaos', 'irmao', 'herdeiros', 'herdeiro', 'sucessao', 'sucessores', 'condominio', 'cia', 'filho', 'filha', 'neto', 'neta', 'junior', 'jr', 'sobrinho'])
 export const slugNome = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 export const tokensNome = s => slugNome(s).split(' ').filter(t => t.length >= 2 && !GENERICOS.has(t) && !/^\d+$/.test(t))
 
-// Pontuação de um nome de imóvel contra a busca: fração das palavras buscadas que aparecem (igual ou, com 4+
-// letras, como prefixo: "Franscisco" ≈ "Francisco" não; "Edel" acha "Edelmar"), com bônus se aparecem na ordem.
-export function pontuarNome(consulta, nome) {
-  const q = Array.isArray(consulta) ? consulta : tokensNome(consulta)
-  if (!q.length) return 0
-  const t = Array.isArray(nome) ? nome : tokensNome(nome)
-  if (!t.length) return 0
-  let achou = 0, ultimo = -1, emOrdem = 0
-  for (const w of q) {
-    const i = t.findIndex(x => x === w || (w.length >= 4 && x.startsWith(w)) || (x.length >= 4 && w.startsWith(x) && w.length - x.length <= 2))
-    if (i >= 0) { achou++; if (i > ultimo) emOrdem++; ultimo = i }
+// Distância de edição (com troca de letras vizinhas), parando cedo acima de `max`.
+function distancia(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1
+  let ant2 = null, ant = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let menor = i
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(ant[j] + 1, cur[j - 1] + 1, ant[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (ant2 && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, ant2[j - 2] + 1)
+      cur.push(v); if (v < menor) menor = v
+    }
+    if (menor > max) return max + 1
+    ant2 = ant; ant = cur
   }
-  if (!achou) return 0
-  const base = achou / q.length
-  return Math.round(Math.min(1, base * (0.9 + 0.1 * (emOrdem / achou))) * 100) / 100
+  return ant[b.length]
+}
+// Quanto uma palavra buscada vale contra uma palavra do registro: 1 = igual ou prefixo ("Edel" acha "Edelmar");
+// 0,9 = grafia parecida ("Franscisco" ≈ "Francisco", "Ceolim" ≈ "Ceolin"): mesma inicial, 5+ letras, 1 letra de
+// diferença (2 com 8+ letras). 0 = não casa.
+export function casarPalavra(w, x) {
+  if (x === w || (w.length >= 4 && x.startsWith(w))) return 1
+  // registro uma letra mais curto ("Edelma" para "Edelmar"); com mais, já é outro nome ("Back" não é "Backes")
+  if (x.length >= 4 && w.startsWith(x) && w.length - x.length === 1) return 0.9
+  if (w.length >= 5 && x.length >= 5 && w[0] === x[0]) {
+    const max = Math.min(w.length, x.length) >= 8 ? 2 : 1
+    if (distancia(w, x, max) <= max) return 0.9
+  }
+  return 0
+}
+// Compara a busca com o nome do registro: quais palavras casaram, se alguma só pela grafia parecida, e a pontuação
+// (fração das palavras buscadas, com bônus se aparecem na ordem).
+export function compararNome(consulta, nome) {
+  const q = Array.isArray(consulta) ? consulta : tokensNome(consulta)
+  const t = Array.isArray(nome) ? nome : tokensNome(nome)
+  const casou = q.map(() => 0)
+  if (!q.length || !t.length) return { s: 0, casou, aproximado: false }
+  let soma = 0, achou = 0, ultimo = -1, emOrdem = 0
+  q.forEach((w, k) => {
+    let melhor = 0, onde = -1
+    for (let i = 0; i < t.length && melhor < 1; i++) { const v = casarPalavra(w, t[i]); if (v > melhor) { melhor = v; onde = i } }
+    if (melhor) { casou[k] = melhor; soma += melhor; achou++; if (onde > ultimo) emOrdem++; ultimo = onde }
+  })
+  if (!achou) return { s: 0, casou, aproximado: false }
+  const s = Math.round(Math.min(1, (soma / q.length) * (0.9 + 0.1 * (emOrdem / achou))) * 100) / 100
+  return { s, casou, aproximado: casou.some(v => v > 0 && v < 1) }
+}
+export const pontuarNome = (consulta, nome) => compararNome(consulta, nome).s
+const ORDEM_REL = { nome: 0, parecido: 1, parcial: 2, sobrenome: 3 }
+const SOBRENOME_RARO = 40   // registros na base com a palavra; acima disso um sobrenome sozinho não identifica
+
+// Ponto dentro de Polygon/MultiPolygon GeoJSON (furos descontados).
+function anelContem(pt, anel) { let d = false; for (let i = 0, j = anel.length - 1; i < anel.length; j = i++) { const [xi, yi] = anel[i], [xj, yj] = anel[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) d = !d } return d }
+export function contemPonto(g, pt) {
+  if (!g) return false
+  const polis = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
+  return polis.some(p => anelContem(pt, p[0]) && !p.slice(1).some(h => anelContem(pt, h)))
 }
 export const confianca = s => (s >= 0.99 ? 'alta' : s >= 0.66 ? 'média' : 'baixa')
 
@@ -122,12 +165,13 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     }
     calibrar(imoveis, mercadoPorCodigo)
     const porId = new Map(imoveis.map(r => [r.id, r]))
-    const porMat = new Map(), grade = new Map()
+    const porMat = new Map(), grade = new Map(), freq = new Map()
     for (const r of imoveis) {
       r.municipio = cab.municipios[r.mun] || ''
       r.mats = normMats(r.mat)
       for (const m of r.mats) { if (!porMat.has(m)) porMat.set(m, []); porMat.get(m).push(r) }
       r.tok = tokensNome(r.nome)
+      for (const w of new Set(r.tok)) freq.set(w, (freq.get(w) || 0) + 1)   // em quantos registros cada palavra aparece
       const [w, s, e, n] = r.b
       for (let x = Math.floor(w / CELULA); x <= Math.floor(e / CELULA); x++)
         for (let y = Math.floor(s / CELULA); y <= Math.floor(n / CELULA); y++) {
@@ -136,7 +180,7 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     }
     // parcelas de cada CAR (para expandir vínculos e mostrar)
     for (const r of imoveis) if (r.lk && porId.has(r.lk)) (porId.get(r.lk).parcelas ||= []).push(r.id)
-    base = { cab, mercado, mercadoPorCodigo, imoveis, porId, porMat, grade, geom, carregadoEm: new Date().toISOString(), ms: Date.now() - t0 }
+    base = { cab, mercado, mercadoPorCodigo, imoveis, porId, porMat, grade, freq, geom, carregadoEm: new Date().toISOString(), ms: Date.now() - t0 }
     console.log(`Motor geo: ${imoveis.length} imóveis carregados em ${base.ms} ms`)
     return base
   }
@@ -182,25 +226,75 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     for (const n of nums) for (const r of b.porMat.get(n) || []) if ((!cod || r.mun === cod) && !vistos.has(r.id)) { vistos.add(r.id); out.push(r) }
     return { numeros: nums, itens: out.sort((x, y) => (x.dup - y.dup) || (x.f === 'CAR' ? -1 : 1) - (y.f === 'CAR' ? -1 : 1) || y.a - x.a) }
   }
-  function buscarNome(texto, municipio, minimo = 0.66) {
+  // Busca pelo nome em toda a base. O município (do cadastro ou escolhido) só ordena: o produtor pode ter terra no
+  // vizinho. Com `estrito`, filtra. Relação com o registro:
+  //   nome      todas as palavras, iguais         parecido  todas, alguma com grafia parecida
+  //   parcial   o primeiro nome e parte do resto  sobrenome sem o primeiro nome (parente, ou a área da família);
+  //   só o último sobrenome casando (igual) entra quando ele é raro na base (até SOBRENOME_RARO registros): o do
+  //   meio ("de Souza") e os comuns ("Machado") trazem gente de outras famílias. Uma palavra só ("Família Seibt"
+  //   vira "seibt") é tratada como sobrenome quando é comum, para entrar no limite.
+  function buscarNome(texto, municipio, minimo = 0.66, { estrito = false } = {}) {
     const b = carregar(), cod = codigoDe(b, municipio), q = tokensNome(texto)
-    if (!q.length) return { tokens: q, itens: [] }
+    if (!q.length) return { tokens: q, itens: [], municipio: cod }
+    const ultimo = q[q.length - 1], ultimoRaro = (b.freq.get(ultimo) || 0) <= SOBRENOME_RARO
     const achados = []
     for (const r of b.imoveis) {
-      if (cod && r.mun !== cod) continue
+      if (estrito && cod && r.mun !== cod) continue
       if (!r.tok.length) continue
-      const s = pontuarNome(q, r.tok)
-      if (s >= minimo && (q.length === 1 || s * q.length >= 2 || s >= 0.99)) {
-        // sem o primeiro nome buscado, é parente ou outra pessoa da família: "mesmo sobrenome"
-        const primeiro = q.length >= 2 && pontuarNome([q[0]], r.tok) > 0
-        achados.push({ r, s, relacao: s >= 0.99 ? 'nome' : q.length >= 2 && !primeiro ? 'sobrenome' : 'parcial' })
-      }
+      const c = compararNome(q, r.tok)
+      // pelo menos uma palavra igual: só grafia parecida ("Backes" ≈ "Backer") costuma ser outra família
+      if (!c.s || !c.casou.some(v => v === 1)) continue
+      const n = c.casou.filter(Boolean).length, primeiro = c.casou[0] > 0
+      let relacao = null
+      if (n === q.length) relacao = q.length === 1 && !ultimoRaro ? 'sobrenome' : c.aproximado ? 'parecido' : 'nome'
+      else if (c.s >= minimo && n >= 2) relacao = primeiro ? 'parcial' : 'sobrenome'
+      else if (q.length >= 2 && !primeiro && ultimoRaro && r.tok.includes(ultimo)) relacao = 'sobrenome'
+      if (relacao) achados.push({ r, s: c.s, relacao, noMunicipio: !cod || r.mun === cod })
     }
     // parcela SIGEF cujo CAR também apareceu: mostra só o CAR (a parcela vai junto)
     const ids = new Set(achados.map(a => a.r.id))
-    const ordemRel = { nome: 0, parcial: 1, sobrenome: 2 }
-    const itens = achados.filter(a => !(a.r.dup && ids.has(a.r.lk))).sort((x, y) => ordemRel[x.relacao] - ordemRel[y.relacao] || y.s - x.s || (y.r.lav || y.r.a) - (x.r.lav || x.r.a))
-    return { tokens: q, itens: itens.slice(0, 300) }
+    const itens = achados.filter(a => !(a.r.dup && ids.has(a.r.lk)))
+      .sort((x, y) => ORDEM_REL[x.relacao] - ORDEM_REL[y.relacao] || (y.noMunicipio - x.noMunicipio) || y.s - x.s || (y.r.lav || y.r.a) - (x.r.lav || x.r.a))
+    // sobrenome comum ("Machado", "Batista") pode trazer centenas: fica com os primeiros
+    let nSob = 0
+    const limitados = itens.filter(a => a.relacao !== 'sobrenome' || ++nSob <= 80)
+    return { tokens: q, itens: limitados.slice(0, 300), municipio: cod, sobrenomeCortado: nSob > 80 ? nSob : 0 }
+  }
+
+  // Imóveis no ponto (o que contém o ponto) e perto dele (até `raioKm`, pelo ponto interno), para o ponto do cadastro.
+  function buscarPonto(lng, lat, raioKm = 1.5) {
+    const b = carregar()
+    const dLat = raioKm / 111, dLng = raioKm / (111 * Math.cos(lat * Math.PI / 180))
+    const { itens } = naJanela([lng - dLng, lat - dLat, lng + dLng, lat + dLat], 5000)
+    const km = r => { const dx = (r.c[0] - lng) * 111 * Math.cos(lat * Math.PI / 180), dy = (r.c[1] - lat) * 111; return Math.hypot(dx, dy) }
+    const dentro = [], perto = []
+    for (const r of itens) {
+      const contem = r.b[0] <= lng && lng <= r.b[2] && r.b[1] <= lat && lat <= r.b[3] && contemPonto(JSON.parse(b.geom.get(r.id)), [lng, lat])
+      if (contem) dentro.push({ r, km: 0 })
+      else { const d = km(r); if (d <= raioKm) perto.push({ r, km: d }) }
+    }
+    const idsDentro = new Set(dentro.map(x => x.r.id))
+    return {
+      dentro: dentro.sort((x, y) => (x.r.dup - y.r.dup) || y.r.a - x.r.a),
+      perto: perto.filter(x => !(x.r.dup && idsDentro.has(x.r.lk))).sort((x, y) => x.km - y.km).slice(0, 15)
+    }
+  }
+
+  // Sugestões de áreas para um produtor do VAL: pelo nome (região toda, o município dele primeiro) e pelo ponto do
+  // cadastro (quando o ponto foi marcado no mapa). Nunca vincula sozinho: o ponto pode estar na sede, num silo ou
+  // na área de outro dono, e o nome pode ser de parente.
+  async function sugestoes(producer, jaVinculados = new Set()) {
+    const fora = x => !jaVinculados.has(x.r.id)
+    const nome = buscarNome(producer.name, producer.municipality).itens.filter(fora)
+    const lat = producer.lat === null || producer.lat === '' ? NaN : Number(producer.lat), lng = producer.lng === null || producer.lng === '' ? NaN : Number(producer.lng)
+    // ponto aproximado (centro do município) não diz nada sobre a terra
+    const temPonto = Number.isFinite(lat) && Number.isFinite(lng) && producer.locationPrecision !== 'municipality'
+    const ponto = temPonto ? buscarPonto(lng, lat) : { dentro: [], perto: [] }
+    const nomeFortes = nome.filter(x => x.relacao === 'nome' || x.relacao === 'parecido')
+    // a melhor pista: nome completo ou parecido; senão o CAR em que o ponto cai (se não for só a sede); senão sobrenome raro
+    const carNoPonto = ponto.dentro.find(x => !x.r.dup && fora(x) && (x.r.a || 0) >= 10)
+    const melhor = nomeFortes[0] ? { ...nomeFortes[0], motivo: 'nome' } : carNoPonto ? { ...carNoPonto, motivo: 'ponto' } : nome[0] ? { ...nome[0], motivo: 'nome' } : null
+    return { nome: nome.slice(0, 40), dentro: ponto.dentro.filter(fora), perto: ponto.perto.filter(fora), temPonto, melhor }
   }
   function naJanela(bbox, limite = 3000) {
     const b = carregar()
@@ -266,16 +360,44 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     }
     if ((rota === 'matricula' || rota === 'nome') && method === 'GET') {
       const municipio = String(url.searchParams.get('municipio') || '')
-      const res = rota === 'matricula' ? buscarMatricula(url.searchParams.get('numero') || '', municipio) : buscarNome(url.searchParams.get('q') || '', municipio, Number(url.searchParams.get('minimo') || 0.66))
+      const res = rota === 'matricula' ? buscarMatricula(url.searchParams.get('numero') || '', municipio)
+        : buscarNome(url.searchParams.get('q') || '', municipio, Number(url.searchParams.get('minimo') || 0.66), { estrito: url.searchParams.get('estrito') === '1' })
       const vinc = await mapaVinculos()
       const comGeo = url.searchParams.get('geometria') === '1'
-      const itens = res.itens.map(x => (x.r ? { ...resumo(x.r, vinc), pontuacao: x.s, confianca: confianca(x.s), relacao: x.relacao } : resumo(x, vinc)))
+      const itens = res.itens.map(x => (x.r ? { ...resumo(x.r, vinc), pontuacao: x.s, confianca: confianca(x.s), relacao: x.relacao, noMunicipio: x.noMunicipio } : resumo(x, vinc)))
       const soma = itens.reduce((s, i) => ({ areaHa: s.areaHa + (i.areaHa || 0), lavouraHa: s.lavouraHa + i.lavouraHa, anoBom: s.anoBom + i.potencialT.anoBom }), { areaHa: 0, lavouraHa: 0, anoBom: 0 })
-      const corpo = { busca: rota === 'matricula' ? { numeros: res.numeros, municipio } : { palavras: res.tokens, municipio }, total: itens.length, soma: { areaHa: Math.round(soma.areaHa), lavouraHa: Math.round(soma.lavouraHa), potencialAnoBomT: arred(soma.anoBom) }, itens }
+      const corpo = { busca: rota === 'matricula' ? { numeros: res.numeros, municipio } : { palavras: res.tokens, municipio, sobrenomeCortado: res.sobrenomeCortado || 0 }, total: itens.length, soma: { areaHa: Math.round(soma.areaHa), lavouraHa: Math.round(soma.lavouraHa), potencialAnoBomT: arred(soma.anoBom) }, itens }
       if (!comGeo) return json(response, 200, corpo)
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
       const feats = itens.slice(0, 300).map(i => `{"type":"Feature","id":${JSON.stringify(i.id)},"properties":${JSON.stringify(i)},"geometry":${base.geom.get(i.id)}}`)
       return response.end(`${JSON.stringify(corpo).slice(0, -1)},"geojson":{"type":"FeatureCollection","features":[${feats.join(',')}]}}`)
+    }
+    // item de sugestão: resumo do imóvel + por que apareceu
+    const item = (x, vinc, motivo) => x && ({ ...resumo(x.r, vinc), relacao: x.relacao || null, pontuacao: x.s ?? null, noMunicipio: x.noMunicipio ?? null, km: x.km == null ? null : Math.round(x.km * 100) / 100, motivo: motivo || x.motivo || null })
+    if (rota === 'ponto' && method === 'GET') {
+      const lat = Number(url.searchParams.get('lat')), lng = Number(url.searchParams.get('lng')), raio = Math.min(5, Math.max(0.1, Number(url.searchParams.get('raio') || 1.5)))
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw domainError('Informe lat e lng.')
+      const p = buscarPonto(lng, lat, raio), vinc = await mapaVinculos()
+      return json(response, 200, { dentro: p.dentro.map(x => item(x, vinc, 'ponto')), perto: p.perto.map(x => item(x, vinc, 'perto')) })
+    }
+    if (rota === 'sugestoes' && method === 'GET') {
+      carregar()
+      const producerId = String(url.searchParams.get('producerId') || '')
+      const [links, vinc] = [await vinculos(), await mapaVinculos()]
+      const doProdutor = id => new Set(links.filter(l => l.producerId === id).flatMap(l => [l.imovelId, ...(base.porId.get(l.imovelId)?.parcelas || [])]))
+      if (producerId) {
+        const p = await store.get('producers', producerId); if (!p) throw domainError('Produtor não encontrado.', 404)
+        const s = await sugestoes(p, doProdutor(producerId))
+        return json(response, 200, { producerId, temPonto: s.temPonto, melhor: item(s.melhor, vinc), nome: s.nome.map(x => item(x, vinc, 'nome')), dentro: s.dentro.map(x => item(x, vinc, 'ponto')), perto: s.perto.map(x => item(x, vinc, 'perto')) })
+      }
+      // todos os produtores: a melhor pista de cada um, para completar o cadastro
+      const produtores = (await store.all('producers')).slice(0, 1000), itens = []
+      for (const p of produtores) {
+        const ja = doProdutor(p.id), s = await sugestoes(p, ja)
+        itens.push({ producerId: p.id, name: p.name, municipality: p.municipality, areaHa: p.areaHa ?? null, areasVinculadas: links.filter(l => l.producerId === p.id).length,
+          temPonto: s.temPonto, melhor: item(s.melhor, vinc), nNome: s.nome.length, nNomeForte: s.nome.filter(x => x.relacao === 'nome' || x.relacao === 'parecido').length, nNoPonto: s.dentro.length })
+      }
+      return json(response, 200, { itens })
     }
     if (rota === 'vinculos') {
       if (method === 'GET' && !id) {
@@ -309,5 +431,5 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     throw domainError('Rota não encontrada.', 404)
   }
 
-  return { handle, carregar, buscarMatricula, buscarNome, naJanela, potencialProdutor }
+  return { handle, carregar, buscarMatricula, buscarNome, buscarPonto, sugestoes, naJanela, potencialProdutor }
 }
