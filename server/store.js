@@ -6,7 +6,7 @@ import path from 'node:path'
 import {randomUUID} from 'node:crypto'
 import pg from 'pg'
 
-export const collections=['producers','intents','market_refs','interactions']
+export const collections=['producers','intents','market_refs','interactions','geo_links']
 const tableFor=name=>`mapa_${name}`
 
 export function createStore({databaseUrl,dataDir}){

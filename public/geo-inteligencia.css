@@ -1,0 +1,25 @@
+/* VAL Mapa — inteligência geo (CAR/SIGEF). Estilos próprios do módulo, sobre os tokens de styles.css. */
+.geo-block{display:flex;flex-direction:column;gap:10px}
+.geo-abas{display:flex;border:1px solid var(--val-line);border-radius:10px;overflow:hidden}
+.geo-abas button{flex:1;border:0;background:#fff;padding:7px 8px;font:inherit;font-size:13px;font-weight:700;color:var(--val-muted);cursor:pointer}
+.geo-abas button+button{border-left:1px solid var(--val-line)}
+.geo-abas button[aria-selected="true"]{background:rgba(0,200,150,.12);color:var(--val-emerald-dark)}
+.geo-soma{margin:0;font-size:13px;color:var(--val-text)}
+.geo-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto}
+.geo-lista li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 8px;align-items:start;border:1px solid var(--val-line);border-radius:10px;padding:7px 9px;background:#fff}
+.geo-lista li .geo-item-acoes{grid-column:2;flex-wrap:wrap}
+.geo-lista li.on{border-color:var(--val-emerald);box-shadow:0 0 0 2px rgba(0,200,150,.18)}
+.geo-lista li input{margin-top:3px;accent-color:var(--val-emerald-dark)}
+.geo-lista.compacta{max-height:220px;margin:6px 0}
+.geo-lista.compacta li{grid-template-columns:minmax(0,1fr) auto}
+.geo-lista.compacta li .geo-item-acoes{grid-column:auto}
+.geo-item{display:flex;flex-direction:column;gap:2px;min-width:0}
+.geo-item b{font-size:13px;overflow-wrap:anywhere}
+.geo-item span{font-size:12px;color:var(--val-muted);overflow-wrap:anywhere}
+.geo-item .geo-vinc{color:#1b6fd6;font-weight:700}
+.geo-item-acoes{display:flex;gap:4px;align-items:center}
+.geo-acoes{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--val-line);padding-top:10px}
+.geo-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--val-line)}
+.geo-pin-wrap{background:none;border:0}
+.geo-pin{position:relative;display:block;width:22px;height:22px;border-radius:50% 50% 50% 0;background:var(--c,#2d8cff);transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 3px 8px rgba(7,27,25,.35)}
+.geo-pin::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
