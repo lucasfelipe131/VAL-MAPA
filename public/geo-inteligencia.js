@@ -19,7 +19,8 @@ if (V) iniciar()
 
 function iniciar() {
   injetarPainel()
-  const t = setInterval(() => { if (V.state.map && V.state.data) { clearInterval(t); montarCamadas() } }, 300)
+  // Espera o app carregar os dados (isto é, depois do login, quando o ambiente tem senha) antes de chamar /api/geo.
+  const t = setInterval(() => { if (V.state.map && V.state.data) { clearInterval(t); montarCamadas(); carregarStatus() } }, 300)
   observarDetalhe()
 }
 
@@ -55,7 +56,9 @@ function injetarPainel() {
   bloco.querySelector('#geo-limpar').onclick = limparResultado
   bloco.querySelector('#geo-res').onclick = cliqueResultado
   bloco.querySelector('#geo-res').onchange = mudancaResultado
-
+}
+function carregarStatus() {
+  const bloco = document.getElementById('geo-block'); if (!bloco) return
   V.api('/api/geo/status').then(s => {
     G.status = s
     const sel = bloco.querySelector('#geo-mun')
