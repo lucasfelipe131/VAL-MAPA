@@ -12,6 +12,27 @@ Mapeamento geográfico de produtores com viés de decisão comercial, levantamen
 
 O score é uma ordenação heurística e auditável, não uma probabilidade de compra. Nenhuma negociação é executada automaticamente.
 
+## Motor geo: imóveis rurais (CAR e SIGEF)
+
+Módulo independente (`server/geo-inteligencia.js` + `public/geo-inteligencia.js`), que não altera cadastro, score nem as outras telas:
+
+- **Busca pelo nome do produtor**, mesmo sem cadastro no VAL. Procura o nome no registro do imóvel (o SIGEF traz o nome da área, que muitas vezes é o do dono), sem acento e palavra a palavra. Cada resultado diz a relação: **nome completo**, **parcial** ou **mesmo sobrenome** (parente ou área da família, para conferir). As áreas recebem **pins** no mapa.
+- **Busca por matrícula** com município, porque o número se repete entre cartórios. Entende "12.345", "R.6-0986", "AV-2/986" e listas.
+- **Vínculo de áreas a produtores** (coleção `geo_links`), ou **cadastro de produtor novo** a partir das áreas selecionadas, com o ponto na maior área, a lavoura estimada e o potencial.
+- **Potencial por área** calibrado pelo IBGE. Lavoura estimada = área consolidada do CAR × (lavoura de verão do município ÷ áreas-base dos imóveis do CAR). Potencial = lavoura × soja, milho e trigo na proporção plantada no município (PAM 2021–2025: ano bom e média com secas). Parcela SIGEF dentro de um CAR não soma duas vezes e, sozinha, conta a parte dela.
+- **Camada de imóveis** da janela do mapa (a partir do zoom 11): laranja sem produtor, azul vinculado, tracejado para parcela SIGEF dentro de um CAR.
+- No detalhe do produtor, a seção **Áreas no CAR/SIGEF** mostra as áreas vinculadas e o potencial delas, com "Usar no cadastro" para gravar área e volume.
+
+Rotas (com sessão): `GET /api/geo/status`, `/api/geo/municipios`, `/api/geo/imoveis?bbox=o,s,l,n`, `/api/geo/imoveis/:id`, `/api/geo/nome?q=&municipio=`, `/api/geo/matricula?numero=&municipio=`, `GET|POST /api/geo/vinculos`, `DELETE /api/geo/vinculos/:id`.
+
+Base: `data/geo/regiao-slg.ndjson.gz`, com 10 municípios da região de São Luiz Gonzaga, 14.569 imóveis do CAR e 5.747 parcelas SIGEF. Ela é carregada na primeira chamada a `/api/geo` (cerca de 0,4 s). Para atualizar ou trocar de região, use `node scripts/geo-build.mjs --imoveis <imoveis-regiao.js> --mercado <mercado.json>`. Fontes:
+- CAR: GeoServer público do SICAR (`sicar:sicar_imoveis_rs`).
+- Área consolidada: base de downloads do SICAR.
+- SIGEF: Geoportal do INCRA (`geonode:sigef_geo`), com matrícula, cartório (CNS) e nome da área.
+- Mercado: IBGE PAM (tabela 1612) e Banco Central SICOR.
+
+O CAR público não traz o nome do dono nem a matrícula. Esses dados vêm das parcelas SIGEF que caem dentro de cada CAR (3.088 imóveis da região). Um imóvel só no CAR, sem SIGEF, não aparece na busca por nome.
+
 ## Rodar localmente
 
 ```bash

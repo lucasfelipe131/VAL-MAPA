@@ -757,3 +757,5 @@ function render(){
 }
 setView(state.view)
 init().catch(error=>toast(error.message,true))
+// Ponte para módulos opcionais (ex.: /geo-inteligencia.js). Só expõe referências; não muda nada nesta tela.
+window.valMapa={state,api,toast,reload,showDetail,setView,esc,fmt,labels}

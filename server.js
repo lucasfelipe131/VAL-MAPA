@@ -6,6 +6,7 @@ import {createStore} from './server/store.js'
 import {geocodeMunicipality} from './server/geocode.js'
 import {parseImportFile} from './server/import.js'
 import {municipalityMesh} from './server/malhas.js'
+import {createGeoIntel} from './server/geo-inteligencia.js'
 import {normalizeProducer,normalizeIntent,normalizeMarketRef,normalizeInteraction,scoreProducers,summarize,distanceKm,domainError,tonnesToSacas,commodityLabels,relationshipLabels,intentStatusLabels,interactionKinds,ufs} from './server/rules.js'
 
 const root=path.dirname(new URL(import.meta.url).pathname)
@@ -15,6 +16,8 @@ const sessionSecret=String(process.env.MAPA_SESSION_SECRET||'')||(accessPassword
 const sessionTtl=Number(process.env.MAPA_SESSION_TTL_SECONDS||43_200)
 const store=createStore({databaseUrl:process.env.DATABASE_URL||'',dataDir:path.join(root,'.data')})
 await store.migrate()
+// Motor geo (imóveis CAR/SIGEF, matrícula, nome, potencial por área). Base carregada sob demanda em /api/geo.
+const geo=createGeoIntel({dataFile:path.join(root,'data','geo','regiao-slg.ndjson.gz'),store,domainError})
 
 const catalog={
  commodities:Object.entries(commodityLabels).map(([value,label])=>({value,label})),
@@ -190,6 +193,7 @@ async function api(request,response,url){
  }
  if(!authenticated(request))throw domainError('Acesso não autorizado.',401)
 
+ if(resource==='geo')return await geo.handle({request,response,url,segments,json,readBody})
  if(resource==='bootstrap'&&method==='GET')return json(response,200,await bootstrap())
  if(resource==='export.csv'&&method==='GET'){response.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="val-mapa-produtores-${new Date().toISOString().slice(0,10)}.csv"`});return response.end(await exportCsv())}
  if(resource==='geocode'&&method==='GET'){
