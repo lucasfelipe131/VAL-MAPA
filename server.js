@@ -17,7 +17,7 @@ const sessionTtl=Number(process.env.MAPA_SESSION_TTL_SECONDS||43_200)
 const store=createStore({databaseUrl:process.env.DATABASE_URL||'',dataDir:path.join(root,'.data')})
 await store.migrate()
 // Motor geo (imóveis CAR/SIGEF, matrícula, nome, potencial por área). Base carregada sob demanda em /api/geo.
-const geo=createGeoIntel({dataFile:path.join(root,'data','geo','regiao-slg.ndjson.gz'),store,domainError})
+const geo=createGeoIntel({dataFile:path.join(root,'data','geo','regiao-missoes.ndjson.gz'),store,domainError})
 
 const catalog={
  commodities:Object.entries(commodityLabels).map(([value,label])=>({value,label})),

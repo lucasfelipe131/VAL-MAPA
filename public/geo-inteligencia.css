@@ -20,6 +20,16 @@
 .geo-item-acoes{display:flex;gap:4px;align-items:center}
 .geo-acoes{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--val-line);padding-top:10px}
 .geo-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--val-line)}
+.geo-completar{gap:8px;align-items:center}
+.geo-completar .hint{margin:0;flex:1;min-width:0}
+.geo-item em{font-style:normal;color:#b5741b}
+/* sugestões no detalhe e lista de produtores: ações abaixo do texto (o painel é estreito) */
+.geo-sug{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.geo-sub{display:block;margin-top:6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--val-muted)}
+.geo-sug .geo-lista.compacta li,.geo-lista.geo-produtores li{grid-template-columns:minmax(0,1fr)}
+.geo-sug .geo-item-acoes,.geo-produtores .geo-item-acoes{flex-wrap:wrap}
+.geo-lista.geo-produtores{max-height:420px}
+.geo-perto summary{cursor:pointer;font-size:13px;color:var(--val-emerald-dark);margin:4px 0}
 .geo-pin-wrap{background:none;border:0}
 .geo-pin{position:relative;display:block;width:22px;height:22px;border-radius:50% 50% 50% 0;background:var(--c,#2d8cff);transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 3px 8px rgba(7,27,25,.35)}
 .geo-pin::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}

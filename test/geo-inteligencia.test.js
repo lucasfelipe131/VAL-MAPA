@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { normMats, tokensNome, pontuarNome, confianca, mercadoMunicipio, calibrar, createGeoIntel } from '../server/geo-inteligencia.js'
+import { normMats, tokensNome, pontuarNome, compararNome, casarPalavra, contemPonto, confianca, mercadoMunicipio, calibrar, createGeoIntel } from '../server/geo-inteligencia.js'
 import { domainError } from '../server/rules.js'
 
 test('normMats lê os formatos de matrícula do SIGEF e dos cartórios', () => {
@@ -24,6 +24,30 @@ test('normMats lê os formatos de matrícula do SIGEF e dos cartórios', () => {
 
 test('tokensNome tira acentos, partículas e palavras de imóvel', () => {
   assert.deepEqual(tokensNome('Fazenda São José – Gleba 2 – João da Costa Beber'), ['sao', 'jose', 'joao', 'costa', 'beber'])
+  assert.deepEqual(tokensNome('Família Seibt'), ['seibt'])                     // família, grupo, filho… não identificam
+  assert.deepEqual(tokensNome('Grupo Jaeger'), ['jaeger'])
+  assert.deepEqual(tokensNome('Genor Brum Filho'), ['genor', 'brum'])
+})
+
+test('grafia parecida: uma letra de diferença (duas em nomes longos), mesma inicial', () => {
+  assert.equal(casarPalavra('franscisco', 'francisco'), 0.9)
+  assert.equal(casarPalavra('ceolim', 'ceolin'), 0.9)
+  assert.equal(casarPalavra('nicolla', 'nicola'), 0.9)
+  assert.equal(casarPalavra('edel', 'edelmar'), 1)                            // prefixo continua valendo inteiro
+  assert.equal(casarPalavra('silva', 'souza'), 0)
+  assert.equal(casarPalavra('brum', 'bruma'), 1)
+  assert.equal(casarPalavra('ivo', 'iva'), 0)                                 // palavra curta: só igual
+  assert.equal(casarPalavra('backes', 'back'), 0)                             // registro 2 letras mais curto é outro nome
+  assert.equal(casarPalavra('edelmar', 'edelma'), 0.9)
+  const c = compararNome('Franscisco Ceolin', 'Agro S.F.A. - Francisco Vendruscolo Ceolin')
+  assert.deepEqual(c.casou, [0.9, 1]); assert.equal(c.aproximado, true)
+})
+
+test('contemPonto respeita furos e multipolígonos', () => {
+  const furado = { type: 'Polygon', coordinates: [[[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]], [[4, 4], [4, 6], [6, 6], [6, 4], [4, 4]]] }
+  assert.equal(contemPonto(furado, [2, 2]), true)
+  assert.equal(contemPonto(furado, [5, 5]), false)
+  assert.equal(contemPonto({ type: 'MultiPolygon', coordinates: [furado.coordinates, [[[20, 20], [20, 21], [21, 21], [21, 20], [20, 20]]]] }, [20.5, 20.5]), true)
 })
 
 test('pontuarNome: todas as palavras na ordem = alta; parte = média; nada = 0', () => {
@@ -58,7 +82,8 @@ function baseDeTeste() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geo-'))
   const quadrado = (x, y, d) => JSON.stringify({ type: 'Polygon', coordinates: [[[x, y], [x, y + d], [x + d, y + d], [x + d, y], [x, y]]] })
   const linhas = [
-    JSON.stringify({ v: 1, geradoEm: '2026-11-16', regiao: 'Teste', fontes: ['teste'], municipios: { 4318903: 'São Luiz Gonzaga' }, mercado: { 'São Luiz Gonzaga': MERC.Teste }, contagem: { car: 2, sigef: 1 } }),
+    JSON.stringify({ v: 1, geradoEm: '2026-11-16', regiao: 'Teste', fontes: ['teste'], municipios: { 4318903: 'São Luiz Gonzaga', 4302501: 'Bossoroca' }, mercado: { 'São Luiz Gonzaga': MERC.Teste, Bossoroca: MERC.Teste }, contagem: { car: 3, sigef: 1 } }),
+    `${JSON.stringify({ id: 'CAR:RS-4302501-CCC', f: 'CAR', car: 'RS-4302501-CCC', a: 200, ac: 180, nome: 'Fazenda Baiotto - Parcela 1', mun: '4302501', c: [-55.09, -28.59], b: [-55.1, -28.6, -55.08, -28.58] })}\t${quadrado(-55.1, -28.6, 0.02)}`,
     `${JSON.stringify({ id: 'CAR:RS-4318903-AAA', f: 'CAR', car: 'RS-4318903-AAA', a: 500, ac: 400, mat: '16213; 16807', cns: '09.961-4', nome: 'José Luiz Moneiro Nicola - Campo Limpo', sig: 'p1', mun: '4318903', c: [-54.95, -28.45], b: [-54.96, -28.46, -54.94, -28.44] })}\t${quadrado(-54.96, -28.46, 0.02)}`,
     `${JSON.stringify({ id: 'SIGEF:p1', f: 'SIGEF', parcela: 'p1', a: 500, ac: 0, mat: '16213,16807', cns: '09.961-4', nome: 'José Luiz Moneiro Nicola - Campo Limpo', lk: 'CAR:RS-4318903-AAA', mun: '4318903', c: [-54.95, -28.45], b: [-54.96, -28.46, -54.94, -28.44] })}\t${quadrado(-54.96, -28.46, 0.02)}`,
     `${JSON.stringify({ id: 'CAR:RS-4318903-BBB', f: 'CAR', car: 'RS-4318903-BBB', a: 300, ac: 250, mun: '4318903', c: [-54.85, -28.35], b: [-54.86, -28.36, -54.84, -28.34] })}\t${quadrado(-54.86, -28.36, 0.02)}`
@@ -96,4 +121,37 @@ test('motor: busca por matrícula, por nome e potencial pelas áreas vinculadas'
   assert.equal(pot.imoveisContados, 1)                                                  // conta o CAR uma vez
   assert.ok(pot.potencial.anoBom > 0)
   assert.ok(pot.potencial.soja > pot.potencial.milho)
+})
+
+test('busca por nome na região toda: município só ordena, grafia parecida e sobrenome raro', () => {
+  const { file, store } = baseDeTeste()
+  const geo = createGeoIntel({ dataFile: file, store, domainError })
+
+  const outroMun = geo.buscarNome('Jose Nicola', 'Bossoroca')                           // cadastro num município, terra no vizinho
+  assert.deepEqual(outroMun.itens.map(x => [x.r.id, x.relacao, x.noMunicipio]), [['CAR:RS-4318903-AAA', 'nome', false]])
+  assert.equal(geo.buscarNome('Jose Nicola', 'Bossoroca', 0.66, { estrito: true }).itens.length, 0)
+
+  assert.equal(geo.buscarNome('Jose Nicolla', '').itens[0].relacao, 'parecido')        // erro de digitação
+  assert.equal(geo.buscarNome('Nicolla', '').itens.length, 0)                           // só grafia parecida, nenhuma igual: não
+  const sob = geo.buscarNome('Ronei Baiotto', 'São Luiz Gonzaga')                      // só o sobrenome, e é raro
+  assert.deepEqual(sob.itens.map(x => [x.r.id, x.relacao]), [['CAR:RS-4302501-CCC', 'sobrenome']])
+  assert.equal(geo.buscarNome('Família Baiotto', '').itens[0].relacao, 'nome')
+})
+
+test('sugestões: áreas no ponto do cadastro e pelo nome, sem vincular sozinho', async () => {
+  const { file, store, db } = baseDeTeste()
+  const geo = createGeoIntel({ dataFile: file, store, domainError })
+
+  const p = geo.buscarPonto(-54.95, -28.45)
+  assert.deepEqual(p.dentro.map(x => x.r.id), ['CAR:RS-4318903-AAA', 'SIGEF:p1'])     // CAR primeiro, a parcela dentro dele depois
+  assert.equal(geo.buscarPonto(-54.5, -28.0).dentro.length, 0)
+
+  const produtor = { id: 'prod-2', name: 'Maria Baiotto', municipality: 'São Luiz Gonzaga', lat: -28.45, lng: -54.95, locationPrecision: 'exact' }
+  const s = await geo.sugestoes(produtor)
+  assert.equal(s.temPonto, true)
+  assert.equal(s.melhor.motivo, 'ponto')                                                 // sem nome completo, a pista é o CAR do ponto
+  assert.equal(s.melhor.r.id, 'CAR:RS-4318903-AAA')
+  assert.deepEqual(s.nome.map(x => [x.r.id, x.relacao]), [['CAR:RS-4302501-CCC', 'sobrenome']])
+  assert.equal((await geo.sugestoes({ ...produtor, locationPrecision: 'municipality' })).temPonto, false)   // ponto aproximado não conta
+  assert.equal(db.geo_links.length, 0)                                                   // nada foi vinculado
 })
