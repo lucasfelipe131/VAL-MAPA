@@ -26,13 +26,13 @@ Módulo independente (`server/geo-inteligencia.js` + `public/geo-inteligencia.js
 
 Rotas (com sessão): `GET /api/geo/status`, `/api/geo/municipios`, `/api/geo/imoveis?bbox=o,s,l,n`, `/api/geo/imoveis/:id`, `/api/geo/nome?q=&municipio=[&estrito=1]`, `/api/geo/matricula?numero=&municipio=`, `/api/geo/ponto?lat=&lng=[&raio=km]`, `/api/geo/sugestoes[?producerId=]`, `GET|POST /api/geo/vinculos`, `DELETE /api/geo/vinculos/:id`.
 
-Base: `data/geo/regiao-missoes.ndjson.gz` (11 MB), com 28 municípios das Missões (regiões de São Luiz Gonzaga, Santo Ângelo e Cerro Largo), 45.203 imóveis do CAR e 8.449 parcelas SIGEF. Ela é carregada na primeira chamada a `/api/geo` (cerca de 1 s e 320 MB de memória). Para atualizar ou trocar de região, use `node scripts/geo-build.mjs --imoveis <imoveis-regiao.js> --mercado <mercado.json>`. Fontes:
+Base: `data/geo/imoveis.ndjson.gz` (25 MB), com os 77 municípios da região de Ijuí (IBGE, região intermediária: Missões, Ijuí, Santa Rosa, Três de Maio e Três Passos), 123.118 imóveis do CAR e 16.099 parcelas SIGEF. Ela é carregada na primeira chamada a `/api/geo` (cerca de 2 s e 550 MB de memória). Para atualizar ou trocar de região, gere o recorte com `ferramentas/recortar-imoveis.js --municipios lista.json` (projeto "mapa slg cvale") e rode `node scripts/geo-build.mjs --imoveis <recorte.js> --mercado <mercado.json> --regiao "nome"`. Fontes:
 - CAR: GeoServer público do SICAR (`sicar:sicar_imoveis_rs`).
 - Área consolidada: base de downloads do SICAR.
 - SIGEF: Geoportal do INCRA (`geonode:sigef_geo`), com matrícula, cartório (CNS) e nome da área.
 - Mercado: IBGE PAM (tabela 1612) e Banco Central SICOR.
 
-O CAR público não traz o nome do dono nem a matrícula. Esses dados vêm das parcelas SIGEF que caem dentro de cada CAR (4.745 imóveis da região). Um imóvel só no CAR, sem SIGEF, não aparece na busca por nome.
+O CAR público não traz o nome do dono nem a matrícula. Esses dados vêm das parcelas SIGEF que caem dentro de cada CAR (9.245 imóveis da região). Um imóvel só no CAR, sem SIGEF, não aparece na busca por nome.
 
 ## Rodar localmente
 
