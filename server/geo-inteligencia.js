@@ -2,7 +2,7 @@
 // potencial por imóvel calibrado pelo IBGE e vínculo de áreas a produtores.
 //
 // Módulo independente: não altera produtores, intenções, interações nem o motor mapa-rules-v1.
-// Os vínculos ficam na coleção própria `geo_links`. A base (data/geo/regiao-missoes.ndjson.gz) é gerada
+// Os vínculos ficam na coleção própria `geo_links`. A base (data/geo/imoveis.ndjson.gz) é gerada
 // por scripts/geo-build.mjs e só é carregada na primeira chamada a /api/geo (não atrasa o /live).
 import fs from 'node:fs'
 import zlib from 'node:zlib'
