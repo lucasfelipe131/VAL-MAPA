@@ -1,4 +1,4 @@
-// VAL Mapa — interface. Sem build: ES module servido diretamente.
+// VAL Geomap — interface. Sem build: ES module servido diretamente.
 const $=(selector,root=document)=>root.querySelector(selector)
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)]
 const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))
@@ -240,7 +240,7 @@ $('#p-new').addEventListener('click',()=>openProducerForm())
 $('#p-import').addEventListener('click',openImport)
 $('#p-more').addEventListener('click',event=>{event.stopPropagation();$('#p-more-menu').hidden=!$('#p-more-menu').hidden})
 document.addEventListener('click',()=>{$('#p-more-menu').hidden=true})
-$('#p-template').addEventListener('click',()=>download('modelo-val-mapa.csv','produtor;municipio;uf;regiao;safra;latitude;longitude;area_ha;produtividade;producao em sacas;volume_t;armazenagem_t;cif;fob;culturas;relacionamento;consultor;telefone;ultimo_contato;observacoes\nFazenda Exemplo;Ijuí;RS;Noroeste;26/27;-28.3878;-53.9149;1200;170;;3900;3000;x;;soja, milho;ativo;Ana;(55) 99999-0000;2026-10-20;Produtor com armazenagem própria\nSítio Exemplo em sacas;São Luiz Gonzaga;RS;Missões;26/27;;;320;180;57600;;;;x;milho;em contato;Ana;;;Produção informada em sacas de 60 kg\n','text/csv'))
+$('#p-template').addEventListener('click',()=>download('modelo-val-geomap.csv','produtor;municipio;uf;regiao;safra;latitude;longitude;area_ha;produtividade;producao em sacas;volume_t;armazenagem_t;cif;fob;culturas;relacionamento;consultor;telefone;ultimo_contato;observacoes\nFazenda Exemplo;Ijuí;RS;Noroeste;26/27;-28.3878;-53.9149;1200;170;;3900;3000;x;;soja, milho;ativo;Ana;(55) 99999-0000;2026-10-20;Produtor com armazenagem própria\nSítio Exemplo em sacas;São Luiz Gonzaga;RS;Missões;26/27;;;320;180;57600;;;;x;milho;em contato;Ana;;;Produção informada em sacas de 60 kg\n','text/csv'))
 $('#p-example').addEventListener('click',()=>{if(confirm('Carregar 14 produtores fictícios de exemplo, com intenções, cotações e interações? Você pode apagar tudo depois.'))run(()=>api('/api/example',{method:'POST'}),'Dados de exemplo carregados.').then(()=>{renderMap.fitted=false;renderMap()})})
 $('#p-reset').addEventListener('click',()=>{const typed=prompt('Isso apaga TODOS os produtores, intenções, cotações e interações. Digite APAGAR TUDO para confirmar.');if(typed==='APAGAR TUDO')run(()=>api('/api/reset',{method:'POST',body:{confirm:typed}}),'Dados apagados.')})
 $('#p-geocode').addEventListener('click',async()=>{
@@ -504,7 +504,7 @@ const toBase64=buffer=>{let binary='';const bytes=new Uint8Array(buffer);for(let
 function openImport(){
  const {catalog}=state.data
  const body=openModal(`<h2>Importar produtores (CSV ou Excel)</h2>
-  <p class="hint">Envie a planilha como está: o VAL Mapa encontra a linha de cabeçalho e reconhece colunas como <b>produtor/nome, município, UF, região, área, produtividade (sc/ha), produção em sacas, volume (t), armazenagem, CIF, FOB, consultor, telefone, último contato</b>. O que a planilha não tiver, preencha nos valores padrão abaixo. Produtores com mesmo nome e município são atualizados.</p>
+  <p class="hint">Envie a planilha como está: o VAL Geomap encontra a linha de cabeçalho e reconhece colunas como <b>produtor/nome, município, UF, região, área, produtividade (sc/ha), produção em sacas, volume (t), armazenagem, CIF, FOB, consultor, telefone, último contato</b>. O que a planilha não tiver, preencha nos valores padrão abaixo. Produtores com mesmo nome e município são atualizados.</p>
   <form id="import-form">
    <label class="field"><span>Arquivo (.xlsx ou .csv)</span><input type="file" name="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
    <label class="field"><span>ou cole o conteúdo CSV</span><textarea name="text" placeholder="nome;municipio;uf;area_ha;producao em sacas"></textarea></label>
@@ -722,7 +722,7 @@ function renderPresentationMap(scored,producers){
 }
 $('#pr-copy').addEventListener('click',async()=>{
  const {ids,labelsActive}=presentationSubset();const agg=aggregates(ids);const {summary,scored}=agg
- const text=[`VAL Mapa — resumo de ${new Date().toLocaleDateString('pt-BR')}${labelsActive.length?` (filtros: ${labelsActive.join(', ')})`:''}`,'',`Produtores: ${summary.producers} (${summary.mapped} georreferenciados) em ${summary.municipalities} municípios`,`Área total: ${fmt(summary.totalAreaHa)} ha · Potencial: ${fmt(summary.potentialVolumeT)} t (${fmtSc(summary.potentialVolumeT)})`,`Prioridade alta: ${summary.highPriority} · Intenções ativas: ${summary.activeIntents} (${summary.confirmedIntents} confirmadas) · Interações em 30 dias: ${summary.interactions30d}`,'','Potencial por região:',...agg.byRegion.map(r=>`- ${r.region}: ${r.producers} produtores, ${fmt(r.area)} ha, ${fmt(r.volume)} t (${fmtSc(r.volume)})`),'','Potencial por município:',...agg.byMunicipality.slice(0,10).map(m=>`- ${m.municipality} (${m.region}): ${m.producers} produtores, ${fmt(m.volume)} t`),'','Prioridades da semana:',...scored.slice(0,10).map((s,i)=>`${i+1}. ${s.name} (${s.municipality}) — score ${s.score}, ${fmt(s.potentialVolumeT)} t — ${s.nextAction}`)].join('\n')
+ const text=[`VAL Geomap — resumo de ${new Date().toLocaleDateString('pt-BR')}${labelsActive.length?` (filtros: ${labelsActive.join(', ')})`:''}`,'',`Produtores: ${summary.producers} (${summary.mapped} georreferenciados) em ${summary.municipalities} municípios`,`Área total: ${fmt(summary.totalAreaHa)} ha · Potencial: ${fmt(summary.potentialVolumeT)} t (${fmtSc(summary.potentialVolumeT)})`,`Prioridade alta: ${summary.highPriority} · Intenções ativas: ${summary.activeIntents} (${summary.confirmedIntents} confirmadas) · Interações em 30 dias: ${summary.interactions30d}`,'','Potencial por região:',...agg.byRegion.map(r=>`- ${r.region}: ${r.producers} produtores, ${fmt(r.area)} ha, ${fmt(r.volume)} t (${fmtSc(r.volume)})`),'','Potencial por município:',...agg.byMunicipality.slice(0,10).map(m=>`- ${m.municipality} (${m.region}): ${m.producers} produtores, ${fmt(m.volume)} t`),'','Prioridades da semana:',...scored.slice(0,10).map((s,i)=>`${i+1}. ${s.name} (${s.municipality}) — score ${s.score}, ${fmt(s.potentialVolumeT)} t — ${s.nextAction}`)].join('\n')
  try{await navigator.clipboard.writeText(text);toast('Resumo copiado para a área de transferência.')}catch{prompt('Copie o resumo:',text)}
 })
 function renderPresentation(){

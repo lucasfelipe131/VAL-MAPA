@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relatório · VAL Geomap</title>
+<link rel="icon" href="/brand/val-symbol-official.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/relatorio.css">
+</head>
+<body>
+<div class="barra-acoes" id="barra">
+ <a href="/" class="voltar">← VAL Geomap</a>
+ <span id="estado" class="estado">Montando o relatório…</span>
+ <button type="button" id="imprimir" disabled>Imprimir ou salvar em PDF</button>
+</div>
+<main id="relatorio" class="folha" aria-live="polite"></main>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script type="module" src="/relatorio.js"></script>
+</body>
+</html>

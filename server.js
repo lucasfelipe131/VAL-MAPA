@@ -195,7 +195,7 @@ async function api(request,response,url){
 
  if(resource==='geo')return await geo.handle({request,response,url,segments,json,readBody})
  if(resource==='bootstrap'&&method==='GET')return json(response,200,await bootstrap())
- if(resource==='export.csv'&&method==='GET'){response.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="val-mapa-produtores-${new Date().toISOString().slice(0,10)}.csv"`});return response.end(await exportCsv())}
+ if(resource==='export.csv'&&method==='GET'){response.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="val-geomap-produtores-${new Date().toISOString().slice(0,10)}.csv"`});return response.end(await exportCsv())}
  if(resource==='geocode'&&method==='GET'){
   const municipality=String(url.searchParams.get('municipality')||'').trim();const uf=String(url.searchParams.get('uf')||'').trim().toUpperCase()
   if(!municipality)throw domainError('Informe o município.')
@@ -248,6 +248,7 @@ async function api(request,response,url){
   if(method==='DELETE'&&id){
    if(!await store.remove('producers',id))throw domainError('Produtor não encontrado.',404)
    await store.removeWhere('intents','producerId',id);await store.removeWhere('interactions','producerId',id)
+   await store.removeWhere('geo_links','producerId',id);await store.files.removeByProducer(id)
    return json(response,200,{removed:true})
   }
  }
@@ -314,4 +315,4 @@ http.createServer(async(request,response)=>{
   if(status>=500)console.error(error)
   return json(response,status,{error:status>=500?'Erro interno no servidor.':error.message})
  }
-}).listen(port,'0.0.0.0',()=>console.log(`VAL Mapa disponível na porta ${port} (armazenamento: ${store.mode}${accessPassword?', acesso protegido':', acesso aberto'})`))
+}).listen(port,'0.0.0.0',()=>console.log(`VAL Geomap disponível na porta ${port} (armazenamento: ${store.mode}${accessPassword?', acesso protegido':', acesso aberto'})`))

@@ -1,4 +1,4 @@
--- VAL Mapa — tabelas documentais (id + JSONB). Idempotente.
+-- VAL Geomap — tabelas documentais (id + JSONB). Idempotente.
 CREATE TABLE IF NOT EXISTS mapa_producers (
   id UUID PRIMARY KEY,
   data JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -34,3 +34,13 @@ CREATE TABLE IF NOT EXISTS mapa_geo_links (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_mapa_geo_links_producer ON mapa_geo_links ((data->>'producerId'));
+-- Documentos anexados ao produtor (matrícula, KML, laudos). Arquivo em bytea, metadados em JSONB.
+CREATE TABLE IF NOT EXISTS mapa_documents (
+  id UUID PRIMARY KEY,
+  producer_id TEXT NOT NULL,
+  meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+  content BYTEA NOT NULL,
+  size INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mapa_documents_producer ON mapa_documents (producer_id);
