@@ -50,6 +50,30 @@ test('documentos no armazenamento local: anexar, listar, baixar, apagar e limpar
   assert.equal((await store.files.list('p2')).length, 0)
 })
 
+test('base em vários arquivos (um por região), carregada em partes sem travar', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geo-regioes-'))
+  const regiao = (nome, cod, mun, id, nomeImovel, x) => zlib.gzipSync([
+    JSON.stringify({ v: 1, geradoEm: '2026-11-17', regiao: nome, fontes: ['CAR', 'Gerado por ferramentas/x'], municipios: { [cod]: mun }, mercado: { [mun]: MERC }, contagem: { car: 1, sigef: 0 }, camadas: { geradoEm: '2026-11-17', fontes: ['INPE'] } }),
+    `${JSON.stringify({ id, f: 'CAR', car: id.slice(4), a: 100, ac: 90, nome: nomeImovel, mun: cod, c: [x + 0.01, -28.45], b: [x, -28.46, x + 0.02, -28.44] })}\t${quadrado(x, -28.46, 0.02)}`
+  ].join('\n'))
+  fs.writeFileSync(path.join(dir, 'imoveis-ijui.ndjson.gz'), regiao('Ijuí', '4310207', 'Ijuí', 'CAR:RS-4310207-A', 'Fazenda Baiotto', -53.9))
+  fs.writeFileSync(path.join(dir, 'imoveis-passo-fundo.ndjson.gz'), regiao('Passo Fundo', '4314100', 'Passo Fundo', 'CAR:RS-4314100-B', 'Granja Baiotto', -52.4))
+  fs.writeFileSync(path.join(dir, 'outro.txt'), 'ignorado')
+  const geo = createGeoIntel({ dataDir: dir, store: { all: async () => [] }, domainError })
+  let respondeu = false
+  setImmediate(() => { respondeu = true })                          // o laço de eventos anda durante a carga
+  const b = await geo.carregarAsync()
+  assert.equal(respondeu, true)
+  assert.equal(b.imoveis.length, 2)
+  assert.deepEqual(Object.keys(b.cab.municipios).sort(), ['4310207', '4314100'])
+  assert.equal(b.cab.contagem.car, 2)
+  assert.match(b.cab.regiao, /Rio Grande do Sul: 2 municípios em 2 regiões/)
+  assert.ok(!b.cab.fontes.some(f => /^Gerado por/.test(f)))
+  assert.equal(String(b.geom.get('CAR:RS-4314100-B')).startsWith('{"type":"Polygon"'), true)   // geometria como fatia do arquivo
+  assert.deepEqual(geo.buscarNome('Baiotto', '').itens.map(x => x.r.municipio).sort(), ['Ijuí', 'Passo Fundo'])
+  assert.equal(await geo.carregarAsync(), b)                       // segunda chamada: a mesma base, sem recarregar
+})
+
 test('nome do arquivo sem caminho nem caracteres perigosos', () => {
   assert.equal(nomeArquivo('C:\\fakepath\\Matrícula 16.213.pdf'), 'Matrícula 16.213.pdf')
   assert.equal(nomeArquivo('../../etc/passwd'), 'passwd')

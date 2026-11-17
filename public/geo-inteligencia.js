@@ -19,6 +19,17 @@ const REL = {
 }
 const COR_REL = { nome: '#009f78', parecido: '#009f78', parcial: '#e5a528', sobrenome: '#9aa8a3' }
 const rotulo = i => i.nome || (i.matricula ? `Matrícula ${i.matricula}` : i.car ? `CAR …${i.car.slice(-8)}` : 'Imóvel sem nome')
+// ícones de traço (24×24), herdam a cor do texto
+const svg = d => `<svg class="geo-svg" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`
+const ICO = {
+  terra: svg('<path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5 9 4Z"/><path d="M9 4v13M15 6.5v13"/>'),
+  busca: svg('<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>'),
+  pessoas: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.7.7 2.8 2.4 3 5.2"/>'),
+  relatorio: svg('<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>'),
+  doc: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>'),
+  lupa: svg('<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8.5 11h5M11 8.5v5"/>'),
+  escudo: svg('<path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3Z"/>')
+}
 const produtorNome = id => V.state.data?.producers.find(p => p.id === id)?.name || 'produtor'
 
 if (V) iniciar()
@@ -28,6 +39,9 @@ function iniciar() {
   // Espera o app carregar os dados (isto é, depois do login, quando o ambiente tem senha) antes de chamar /api/geo.
   const t = setInterval(() => { if (V.state.map && V.state.data) { clearInterval(t); montarCamadas(); carregarStatus() } }, 300)
   observarDetalhe()
+  // com o cartão do produtor aberto, o seletor de camadas do mapa anda para o lado (CSS #view-map.com-detalhe)
+  const det = document.getElementById('detail'), vista = document.getElementById('view-map')
+  if (det && vista) new MutationObserver(() => vista.classList.toggle('com-detalhe', !det.hidden)).observe(det, { attributes: true, attributeFilter: ['hidden'] })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -39,20 +53,25 @@ function injetarPainel() {
   const bloco = document.createElement('div')
   bloco.className = 'panel-block geo-block'; bloco.id = 'geo-block'
   bloco.innerHTML = `
-    <div class="row between"><strong>Imóveis rurais · CAR e SIGEF</strong><label class="toggle"><input id="geo-camada" type="checkbox"><span>Mostrar</span></label></div>
-    <p class="hint" id="geo-status">Carregando a base de imóveis…</p>
+    <div class="geo-cab">
+      <span class="geo-ico">${ICO.terra}</span>
+      <div class="geo-cab-txt"><strong>Imóveis rurais</strong><small>CAR · SIGEF · socioambiental</small></div>
+      <label class="geo-chave" title="Mostra no mapa os imóveis da janela (a partir do zoom 11)"><input id="geo-camada" type="checkbox"><span class="geo-chave-trilho" aria-hidden="true"></span><span>No mapa</span></label>
+    </div>
+    <p class="geo-status" id="geo-status">Carregando a base de imóveis…</p>
     <div class="geo-abas" role="tablist">
       <button type="button" role="tab" data-geo-aba="nome" aria-selected="true">Nome do produtor</button>
       <button type="button" role="tab" data-geo-aba="matricula" aria-selected="false">Matrícula</button>
     </div>
-    <div class="grid-2">
-      <label class="field"><span id="geo-mun-rotulo" title="Na busca por nome, as áreas desse município vêm primeiro; as dos outros aparecem depois">Município (vem primeiro)</span><select id="geo-mun"><option value="">Toda a região</option></select></label>
-      <label class="field"><span id="geo-q-rotulo">Nome</span><input id="geo-q" type="search" placeholder="Ex.: Costa Beber" autocomplete="off"></label>
+    <label class="field"><span id="geo-q-rotulo">Nome</span><span class="geo-busca">${ICO.busca}<input id="geo-q" type="search" placeholder="Ex.: Costa Beber" autocomplete="off"></span></label>
+    <label class="field"><span id="geo-mun-rotulo" title="Na busca por nome, as áreas desse município vêm primeiro; as dos outros aparecem depois">Município (vem primeiro)</span><select id="geo-mun"><option value="">Todo o estado</option></select></label>
+    <button id="geo-buscar" class="btn primary wide" type="button">${ICO.busca}<span class="lbl">Buscar áreas</span></button>
+    <p class="hint" id="geo-dica">Acha as áreas pelo nome que aparece no registro do imóvel (SIGEF), mesmo de quem ainda não está cadastrado no VAL. Procura na base toda, aceita grafia parecida e sobrenome.</p>
+    <div class="geo-atalhos">
+      <button id="geo-completar" class="geo-atalho" type="button"><span class="geo-ico">${ICO.pessoas}</span><span><b class="lbl">Completar produtores</b><small>Pistas de área pelo nome e pelo ponto</small></span></button>
+      <button id="geo-rel-mun" class="geo-atalho" type="button"><span class="geo-ico">${ICO.relatorio}</span><span><b>Relatório do município</b><small>Potencial, carteira e alertas</small></span></button>
     </div>
-    <div class="row between"><button id="geo-buscar" class="btn small primary" type="button">Buscar áreas</button><button id="geo-limpar" class="btn ghost small" type="button" hidden>Limpar pins</button></div>
-    <p class="hint" id="geo-dica">Acha as áreas pelo nome que aparece no registro do imóvel (SIGEF), mesmo de quem ainda não está cadastrado no VAL. Procura na região toda, aceita grafia parecida e sobrenome.</p>
-    <div class="row between geo-completar"><span class="hint">Produtores do VAL sem áreas: veja as pistas pelo nome e pelo ponto do cadastro.</span><button id="geo-completar" class="btn small" type="button">Completar produtores</button></div>
-    <div class="row between geo-completar"><span class="hint">Potencial, mercado, carteira, oportunidades e alertas do município escolhido acima.</span><button id="geo-rel-mun" class="btn small" type="button">Relatório do município</button></div>
+    <div class="row between geo-res-topo"><span></span><button id="geo-limpar" class="btn ghost small" type="button" hidden>Limpar resultado</button></div>
     <div id="geo-res"></div>`
   const primeiro = painel.querySelector('.panel-block')
   primeiro ? primeiro.after(bloco) : painel.prepend(bloco)
@@ -76,8 +95,8 @@ function carregarStatus() {
   V.api('/api/geo/status').then(s => {
     G.status = s
     const sel = bloco.querySelector('#geo-mun')
-    sel.innerHTML = '<option value="">Toda a região</option>' + Object.values(s.municipios).sort((a, b) => a.localeCompare(b, 'pt-BR')).map(n => `<option>${esc(n)}</option>`).join('')
-    bloco.querySelector('#geo-status').textContent = `${fmt(s.contagem.car)} imóveis do CAR e ${fmt(s.contagem.sigef)} parcelas SIGEF · ${s.regiao}.`
+    sel.innerHTML = '<option value="">Todo o estado</option>' + Object.values(s.municipios).sort((a, b) => a.localeCompare(b, 'pt-BR')).map(n => `<option>${esc(n)}</option>`).join('')
+    bloco.querySelector('#geo-status').innerHTML = `<b>${fmt(s.contagem.car)}</b> imóveis do CAR · <b>${fmt(s.contagem.sigef)}</b> parcelas SIGEF · <b>${fmt(Object.keys(s.municipios).length)}</b> municípios<small>${esc(s.regiao)}</small>`
   }).catch(e => { bloco.querySelector('#geo-status').textContent = `Base de imóveis indisponível: ${e.message}` })
 }
 function trocarAba(aba) {
@@ -122,20 +141,39 @@ function aoCriarFeicao(f, layer) {
   })
 }
 const restilizar = () => { G.layer?.setStyle(estilo); G.res?.setStyle(f => ({ ...estilo(f), weight: 2.5, fillOpacity: .28 })) }
+// Legenda da camada de imóveis, no canto do mapa, só com a camada ligada; mostra também o estado da janela
+function legenda(texto) {
+  const map = V.state.map; if (!map) return
+  if (!G.legenda) {
+    G.legenda = L.control({ position: 'bottomleft' })
+    G.legenda.onAdd = () => {
+      const d = L.DomUtil.create('div', 'geo-legenda')
+      d.innerHTML = `<b>Imóveis rurais</b>
+        <span><i class="lg-livre"></i>Sem produtor do VAL</span><span><i class="lg-vinc"></i>Vinculado a produtor</span>
+        <span><i class="lg-risco"></i>Risco socioambiental crítico</span><span><i class="lg-parcela"></i>Parcela SIGEF dentro de CAR</span>
+        <small id="geo-legenda-st"></small>`
+      L.DomEvent.disableClickPropagation(d)
+      return d
+    }
+  }
+  if (!G.ativo) { G.legenda.remove(); return }
+  if (!G.legenda._map) G.legenda.addTo(map)
+  const st = document.getElementById('geo-legenda-st'); if (st) st.textContent = texto || ''
+}
 async function carregarJanela() {
   const map = V.state.map; if (!map || !G.layer) return
-  const st = document.getElementById('geo-status')
-  if (!G.ativo) { if (map.hasLayer(G.layer)) map.removeLayer(G.layer); return }
+  if (!G.ativo) { if (map.hasLayer(G.layer)) map.removeLayer(G.layer); legenda(); return }
   if (!map.hasLayer(G.layer)) G.layer.addTo(map)
-  if (map.getZoom() < 11) { G.layer.clearLayers(); st.textContent = 'Aproxime o mapa (nível 11 ou mais) para ver os imóveis.'; return }
+  if (map.getZoom() < 11) { G.layer.clearLayers(); G.ultimaJanela = ''; legenda('Aproxime o mapa (zoom 11 ou mais) para ver os imóveis.'); return }
   const b = map.getBounds(), bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(v => v.toFixed(4)).join(',')
   if (bbox === G.ultimaJanela) return
   G.ultimaJanela = bbox
+  legenda('Carregando…')
   try {
     const fc = await V.api(`/api/geo/imoveis?bbox=${bbox}`)
     G.layer.clearLayers(); G.layer.addData(fc)
-    st.textContent = `${fmt(fc.features.length)} imóveis nesta área${fc.total > fc.features.length ? ` (de ${fmt(fc.total)})` : ''}. Laranja: sem produtor · azul: vinculado · tracejado: parcela SIGEF dentro de um CAR. Clique para selecionar.`
-  } catch (e) { st.textContent = e.message }
+    legenda(`${fmt(fc.features.length)} imóveis nesta área${fc.total > fc.features.length ? ` (de ${fmt(fc.total)})` : ''} · clique para selecionar`)
+  } catch (e) { legenda(e.message) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -144,7 +182,7 @@ async function carregarJanela() {
 async function buscar() {
   const q = document.getElementById('geo-q').value.trim(), mun = document.getElementById('geo-mun').value
   if (!q) return V.toast(G.aba === 'nome' ? 'Digite o nome do produtor.' : 'Digite a matrícula.', true)
-  const btn = document.getElementById('geo-buscar'); btn.disabled = true; btn.textContent = 'Buscando…'
+  const btn = document.getElementById('geo-buscar'); btn.disabled = true; btn.querySelector('.lbl').textContent = 'Buscando…'
   try {
     const url = G.aba === 'nome' ? `/api/geo/nome?q=${encodeURIComponent(q)}&municipio=${encodeURIComponent(mun)}&geometria=1` : `/api/geo/matricula?numero=${encodeURIComponent(q)}&municipio=${encodeURIComponent(mun)}&geometria=1`
     const r = await V.api(url)
@@ -153,7 +191,7 @@ async function buscar() {
     marcarPins(r.itens)
     desenharResultado()
     if (r.itens.length) V.state.map.fitBounds(limites(r.itens), { padding: [40, 40], maxZoom: 14 })
-  } catch (e) { V.toast(e.message, true) } finally { btn.disabled = false; btn.textContent = 'Buscar áreas' }
+  } catch (e) { V.toast(e.message, true) } finally { btn.disabled = false; btn.querySelector('.lbl').textContent = 'Buscar áreas' }
 }
 const limites = itens => itens.reduce((b, i) => [[Math.min(b[0][0], i.bbox[1]), Math.min(b[0][1], i.bbox[0])], [Math.max(b[1][0], i.bbox[3]), Math.max(b[1][1], i.bbox[2])]], [[90, 180], [-90, -180]])
 function marcarPins(itens) {
@@ -186,7 +224,7 @@ function desenharResultado() {
   box.innerHTML = `
     <p class="geo-soma"><b>${fmt(G.itens.length)} área${G.itens.length === 1 ? '' : 's'}</b> · ${fmt(soma.areaHa)} ha · lavoura estimada ${fmt(soma.lavouraHa)} ha · ~${fmt(soma.anoBom)} t/ano em ano bom</p>
     <label class="toggle"><input type="checkbox" data-geo-todos ${sel.length === G.itens.length ? 'checked' : ''}><span>Selecionar todas</span></label>
-    <ul class="geo-lista">${G.itens.map(i => `<li class="${G.sel.has(i.id) ? 'on' : ''}">
+    <ul class="geo-lista">${G.itens.map(i => `<li class="${G.sel.has(i.id) ? 'on' : ''} ${i.relacao ? `rel-${i.relacao}` : ''} ${i.socioambiental?.nivel === 'critico' ? 'risco' : ''}">
       <input type="checkbox" data-geo-sel="${esc(i.id)}" ${G.sel.has(i.id) ? 'checked' : ''} aria-label="Selecionar ${esc(rotulo(i))}">
       <div class="geo-item"><b>${esc(rotulo(i))}</b>
         <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)}${i.noMunicipio === false && G.busca?.munNome ? ` <em>(fora de ${esc(G.busca.munNome)})</em>` : ''} · ${fmt(i.areaHa, 1)} ha${i.potencialT.anoBom ? ` · ~${fmt(i.potencialT.anoBom)} t/ano` : ''}</span>
@@ -284,23 +322,36 @@ async function secaoDetalhe(producerId) {
   const det = document.getElementById('detail'); if (!det || det.hidden) return
   let sec = det.querySelector('.geo-detail')
   if (!sec) { sec = document.createElement('div'); sec.className = 'geo-detail'; (det.querySelector('.detail-actions') || det.lastChild).before(sec) }
-  sec.innerHTML = '<strong>Áreas no CAR/SIGEF</strong><p class="meta">Carregando…</p>'
+  sec.innerHTML = `<div class="geo-sec-cab"><span class="geo-ico">${ICO.terra}</span><strong>Áreas no CAR/SIGEF</strong></div><p class="meta">Carregando…</p>`
   try {
     const r = await V.api(`/api/geo/vinculos?producerId=${encodeURIComponent(producerId)}`)
     if (V.state.selected !== producerId) return
     const p = V.state.data.producers.find(x => x.id === producerId)
     const pot = r.potencial
     const sa = r.socioambiental
-    sec.innerHTML = `<strong>Áreas no CAR/SIGEF</strong>
-      ${r.vinculos.length ? `<p class="meta">${r.imoveisContados} imóve${r.imoveisContados === 1 ? 'l' : 'is'} · lavoura estimada <b>${fmt(pot.lavouraHa)} ha</b> · potencial <b>${fmt(pot.anoBom)} t/ano</b> em ano bom (soja ${fmt(pot.soja)} · milho ${fmt(pot.milho)} · trigo ${fmt(pot.trigo)}) · ${fmt(pot.media)} t na média de 5 anos</p>
-      <p class="meta">${r.porte ? `<b>${esc(r.porte.rotulo)}</b> (${fmt(r.porte.modulos, 1)} módulos fiscais) · ${esc(r.porte.credito)} · ` : ''}Socioambiental: ${seloRisco(sa?.nivel)}</p>
-      ${sa?.motivos?.length ? `<ul class="geo-motivos">${sa.motivos.slice(0, 4).map(m => `<li>${seloRisco(m.nivel)} ${esc(m.texto)} <small>${esc(m.imovel)} · ${esc(m.fonte)}</small></li>`).join('')}${sa.motivos.length > 4 ? `<li><small>e mais ${sa.motivos.length - 4} no relatório</small></li>` : ''}</ul>` : ''}
+    const nivel = sa?.nivel || 'ok'
+    // barras de soja, milho e trigo no potencial em ano bom
+    const culturas = [['Soja', pot.soja], ['Milho', pot.milho], ['Trigo', pot.trigo]].filter(([, v]) => v > 0)
+    const maxCult = Math.max(1, ...culturas.map(([, v]) => v))
+    sec.innerHTML = `<div class="geo-sec-cab"><span class="geo-ico">${ICO.terra}</span><strong>Áreas no CAR/SIGEF</strong><span class="geo-contagem">${r.imoveisContados}</span></div>
+      ${r.vinculos.length ? `
+      <div class="geo-kpis">
+        <div><span>Lavoura estimada</span><b>${fmt(pot.lavouraHa)} ha</b><small>${r.imoveisContados} imóve${r.imoveisContados === 1 ? 'l' : 'is'} · ${fmt(pot.areaHa)} ha</small></div>
+        <div><span>Potencial ano bom</span><b>${fmt(pot.anoBom)} t</b><small>média de 5 anos: ${fmt(pot.media)} t</small></div>
+        <div><span>Porte</span><b>${r.porte ? esc(r.porte.rotulo.replace(' produtor', '')) : '—'}</b><small>${r.porte ? `${fmt(r.porte.modulos, 1)} módulos fiscais` : ''}</small></div>
+        <div class="geo-kpi-risco ${nivel}"><span>Socioambiental</span><b>${ROT_RISCO[nivel].replace(/^./, c => c.toUpperCase())}</b><small>${sa?.motivos?.length ? `${sa.motivos.length} apontamento${sa.motivos.length === 1 ? '' : 's'}` : 'nas camadas consultadas'}</small></div>
+      </div>
+      ${culturas.length ? `<div class="geo-culturas">${culturas.map(([n, v]) => `<div><span>${n}</span><i style="--w:${(v / maxCult * 100).toFixed(1)}%"></i><b>${fmt(v)} t</b></div>`).join('')}</div>` : ''}
+      ${r.porte ? `<p class="geo-credito">${ICO.escudo}<span>${esc(r.porte.credito)}</span></p>` : ''}
+      ${sa?.motivos?.length ? `<ul class="geo-motivos">${sa.motivos.slice(0, 3).map(m => `<li class="${m.nivel}"><span>${esc(m.texto)}</span><small>${esc(m.imovel)} · ${esc(m.fonte)}</small></li>`).join('')}${sa.motivos.length > 3 ? `<li class="mais"><small>e mais ${sa.motivos.length - 3} no relatório</small></li>` : ''}</ul>` : ''}
       <ul class="geo-lista compacta">${r.vinculos.map(l => `<li><div class="geo-item"><b>${esc(l.imovel ? rotulo(l.imovel) : l.nome || l.imovelId)}</b><span>${esc(l.fonte)} · ${esc(l.municipio)} · ${fmt(l.areaHa, 1)} ha${l.matricula ? ` · mat. ${esc(l.matricula)}` : ''}</span></div>
         <div class="geo-item-acoes">${l.imovel ? badgeRisco(l.imovel) : ''}${l.imovel ? `<button class="btn ghost small" type="button" data-geo-ir="${esc(l.imovelId)}">Ver</button>` : ''}<button class="btn ghost small danger" type="button" data-geo-desvincular="${esc(l.id)}" aria-label="Remover vínculo">×</button></div></li>`).join('')}</ul>
-      <div class="detail-actions"><button class="btn small primary" type="button" data-geo-relatorio>Relatório do produtor</button><button class="btn small" type="button" data-geo-mostrar>Mostrar áreas no mapa</button><button class="btn small" type="button" data-geo-buscar-prod>Buscar mais áreas</button>${pot.anoBom ? `<button class="btn small ghost" type="button" data-geo-usar title="Grava a lavoura estimada como área e o potencial em ano bom como volume estimado">Usar no cadastro</button>` : ''}</div>`
-        : `<p class="meta">Nenhuma área vinculada. Confira as sugestões abaixo ou busque pelo nome no painel do mapa.</p><div class="detail-actions"><button class="btn small" type="button" data-geo-buscar-prod>Buscar áreas pelo nome</button><button class="btn small" type="button" data-geo-relatorio>Relatório do produtor</button></div>`}
-      <div class="geo-sug" id="geo-sug"><p class="meta">Procurando sugestões…</p></div>
-      <div class="geo-docs" id="geo-docs"><p class="meta">Carregando documentos…</p></div>`
+      <div class="detail-actions geo-acoes-prod"><button class="btn small primary" type="button" data-geo-relatorio>${ICO.relatorio}Relatório do produtor</button><button class="btn small" type="button" data-geo-mostrar>Mostrar no mapa</button><button class="btn small" type="button" data-geo-buscar-prod>Buscar mais áreas</button>${pot.anoBom ? `<button class="btn small ghost" type="button" data-geo-usar title="Grava a lavoura estimada como área e o potencial em ano bom como volume estimado">Usar no cadastro</button>` : ''}</div>`
+        : `<p class="meta">Nenhuma área vinculada. Confira as sugestões abaixo ou busque pelo nome no painel do mapa.</p><div class="detail-actions geo-acoes-prod"><button class="btn small" type="button" data-geo-buscar-prod>${ICO.busca}Buscar áreas pelo nome</button><button class="btn small" type="button" data-geo-relatorio>${ICO.relatorio}Relatório do produtor</button></div>`}
+      <details class="geo-dobra"${r.vinculos.length ? '' : ' open'}><summary><span class="geo-ico">${ICO.lupa}</span>Sugestões de áreas<span class="geo-contagem" id="geo-sug-n">…</span></summary>
+        <div class="geo-sug" id="geo-sug"><p class="meta">Procurando sugestões…</p></div></details>
+      <details class="geo-dobra"><summary><span class="geo-ico">${ICO.doc}</span>Documentos<span class="geo-contagem" id="geo-docs-n">…</span></summary>
+        <div class="geo-docs" id="geo-docs"><p class="meta">Carregando documentos…</p></div></details>`
     carregarSugestoes(producerId)
     carregarDocumentos(producerId)
     sec.onclick = async e => {
@@ -343,7 +394,8 @@ async function carregarDocumentos(producerId) {
   try {
     const r = await V.api(`/api/geo/documentos?producerId=${encodeURIComponent(producerId)}`)
     if (V.state.selected !== producerId || !document.getElementById('geo-docs')) return
-    document.getElementById('geo-docs').innerHTML = `<strong>Documentos</strong>
+    const contD = document.getElementById('geo-docs-n'); if (contD) contD.textContent = r.itens.length
+    document.getElementById('geo-docs').innerHTML = `
       ${r.itens.length ? `<ul class="geo-lista compacta">${r.itens.map(d => `<li><div class="geo-item"><b><a href="/api/geo/documentos/${encodeURIComponent(d.id)}">${esc(d.nome)}</a></b>
           <span>${esc(CATEG_DOC[d.categoria] || d.categoria)} · ${tamanho(d.size)} ·${new Date(d.createdAt).toLocaleDateString('pt-BR')}${d.descricao ? ` · ${esc(d.descricao)}` : ''}</span></div>
           <div class="geo-item-acoes"><button class="btn ghost small danger" type="button" data-geo-doc-apagar="${esc(d.id)}" data-nome="${esc(d.nome)}" aria-label="Apagar ${esc(d.nome)}">×</button></div></li>`).join('')}</ul>`
@@ -354,7 +406,7 @@ async function carregarDocumentos(producerId) {
         <label class="field"><span>Descrição</span><input id="geo-doc-desc" maxlength="200" placeholder="Ex.: matrícula 16.213"></label></div>
         <button class="btn small" type="button" data-geo-doc-enviar>Anexar documento</button>
       </div>`
-  } catch (e) { const b = document.getElementById('geo-docs'); if (b) b.innerHTML = `<strong>Documentos</strong><p class="meta">${esc(e.message)}</p>` }
+  } catch (e) { const b = document.getElementById('geo-docs'); if (b) b.innerHTML = `<p class="meta">${esc(e.message)}</p>` }
 }
 async function enviarDocumento(producerId) {
   const arq = document.getElementById('geo-doc-arquivo')?.files?.[0]
@@ -386,7 +438,8 @@ async function carregarSugestoes(producerId) {
     G.sug = s
     const lista = (itens, vazio) => (itens.length ? `<ul class="geo-lista compacta">${itens.map(linhaSugestao).join('')}</ul>` : vazio ? `<p class="meta">${vazio}</p>` : '')
     const perto = s.perto.slice(0, 5)
-    document.getElementById('geo-sug').innerHTML = `<strong>Sugestões de áreas</strong>
+    const cont = document.getElementById('geo-sug-n'); if (cont) cont.textContent = s.nome.length + s.dentro.length
+    document.getElementById('geo-sug').innerHTML = `
       <p class="meta">Pistas para conferir no mapa; nada é vinculado sem o seu clique.</p>
       <b class="geo-sub">Pelo nome · região toda</b>${lista(s.nome.slice(0, 8), 'Nenhum registro da base com esse nome ou sobrenome.')}
       ${s.temPonto
@@ -409,7 +462,7 @@ function linhaSugestao(i) {
 // Painel: todos os produtores do VAL com a melhor pista de área de cada um
 async function completarProdutores() {
   const box = document.getElementById('geo-res'), btn = document.getElementById('geo-completar')
-  btn.disabled = true; btn.textContent = 'Procurando…'
+  btn.disabled = true; btn.querySelector('.lbl').textContent = 'Procurando…'
   try {
     const r = await V.api('/api/geo/sugestoes')
     G.itens = []; G.sel = new Set(); G.res.clearLayers(); G.pins.clearLayers(); G.ultimaBusca = ''; restilizar()
@@ -427,7 +480,7 @@ async function completarProdutores() {
         <div class="geo-item-acoes"><button class="btn small" type="button" data-geo-abrir="${esc(x.producerId)}">Abrir</button></div></li>`).join('')}</ul>
       <p class="hint">Abrir mostra no cadastro do produtor as sugestões pelo nome e pelo ponto, para conferir no mapa e vincular.</p>`
     document.getElementById('geo-limpar').hidden = false
-  } catch (e) { V.toast(e.message, true) } finally { btn.disabled = false; btn.textContent = 'Completar produtores' }
+  } catch (e) { V.toast(e.message, true) } finally { btn.disabled = false; btn.querySelector('.lbl').textContent = 'Completar produtores' }
 }
 
 async function mostrarVinculos(vinculos) {

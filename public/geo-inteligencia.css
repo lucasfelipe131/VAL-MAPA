@@ -41,3 +41,93 @@
 .geo-pin-wrap{background:none;border:0}
 .geo-pin{position:relative;display:block;width:22px;height:22px;border-radius:50% 50% 50% 0;background:var(--c,#2d8cff);transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 3px 8px rgba(7,27,25,.35)}
 .geo-pin::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
+
+/* ---------------------------------------------------------------------------------------------
+   Acabamento visual: painel de imóveis, legenda no mapa e seção do produtor
+   --------------------------------------------------------------------------------------------- */
+.geo-svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.geo-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:linear-gradient(135deg,rgba(0,200,150,.16),rgba(45,140,255,.12));color:var(--val-emerald-dark)}
+.geo-cab{display:flex;align-items:center;gap:10px}
+.geo-cab-txt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.15}
+.geo-cab-txt strong{font-size:15px;font-weight:800}
+.geo-cab-txt small{font-size:11px;color:var(--val-muted);text-transform:uppercase;letter-spacing:.07em;font-weight:700;margin-top:3px}
+/* chave liga/desliga da camada */
+.geo-chave{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--val-muted);cursor:pointer;user-select:none;position:relative}
+.geo-chave input{position:absolute;opacity:0;width:0;height:0}
+.geo-chave-trilho{width:34px;height:20px;border-radius:999px;background:#d5e2dd;position:relative;transition:background .2s}
+.geo-chave-trilho::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s}
+.geo-chave input:checked+.geo-chave-trilho{background:var(--val-emerald)}
+.geo-chave input:checked+.geo-chave-trilho::after{transform:translateX(14px)}
+.geo-chave input:focus-visible+.geo-chave-trilho{outline:3px solid rgba(0,200,150,.35)}
+.geo-status{margin:0;font-size:12.5px;color:var(--val-text);background:#f4f8f6;border:1px solid var(--val-line);border-radius:10px;padding:7px 10px;line-height:1.4}
+.geo-status small{display:block;color:var(--val-muted);font-size:11px;margin-top:2px}
+.geo-abas{background:#f4f8f6;border-color:var(--val-line);padding:3px;gap:3px;border-radius:12px}
+.geo-abas button{background:transparent;border-radius:9px;padding:7px 8px}
+.geo-abas button+button{border-left:0}
+.geo-abas button[aria-selected="true"]{background:#fff;color:var(--val-emerald-dark);box-shadow:0 1px 3px rgba(7,42,36,.12)}
+.geo-busca{position:relative;display:block}
+.geo-busca .geo-svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--val-muted);width:16px;height:16px}
+.field .geo-busca input{padding-left:34px}
+#geo-buscar{padding:10px 14px}
+#geo-buscar .geo-svg{width:16px;height:16px}
+/* atalhos */
+.geo-atalhos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.geo-atalho{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;font:inherit;color:var(--val-text);background:#fff;border:1px solid var(--val-line);border-radius:12px;padding:10px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
+.geo-atalho:hover{border-color:rgba(0,200,150,.5);box-shadow:0 8px 20px rgba(7,42,36,.08);transform:translateY(-1px)}
+.geo-atalho:disabled{opacity:.6;cursor:default;transform:none}
+.geo-atalho .geo-ico{width:30px;height:30px;border-radius:9px}
+.geo-atalho b{display:block;font-size:12.5px;line-height:1.2}
+.geo-atalho small{display:block;font-size:11px;color:var(--val-muted);margin-top:2px;line-height:1.3}
+.geo-res-topo:has(#geo-limpar[hidden]){display:none}
+/* resultados: faixa da relação com o nome buscado */
+.geo-lista li{border-left:4px solid var(--val-line)}
+.geo-lista li.rel-nome,.geo-lista li.rel-parecido{border-left-color:#00a37a}
+.geo-lista li.rel-parcial{border-left-color:#e5a528}
+.geo-lista li.rel-sobrenome{border-left-color:#b6c3be}
+.geo-lista li.on{border-left-color:var(--val-emerald)}
+.geo-lista.compacta li{border-left-width:1px}
+/* legenda da camada no mapa */
+.geo-legenda{background:rgba(255,255,255,.96);border:1px solid var(--val-line);border-radius:12px;box-shadow:0 8px 24px rgba(7,42,36,.12);padding:9px 11px;font:12px Manrope,sans-serif;color:var(--val-text);display:flex;flex-direction:column;gap:4px;max-width:240px}
+.geo-legenda b{font-size:12.5px;margin-bottom:2px}
+.geo-legenda span{display:flex;align-items:center;gap:7px}
+.geo-legenda i{width:16px;height:11px;border-radius:3px;flex:none}
+.geo-legenda .lg-livre{background:rgba(229,165,40,.18);border:1.5px solid #e5a528}
+.geo-legenda .lg-vinc{background:rgba(45,140,255,.3);border:1.5px solid #2d8cff}
+.geo-legenda .lg-risco{background:rgba(229,165,40,.12);border:2px solid #d92d20}
+.geo-legenda .lg-parcela{border:1.5px dashed #6c7f78;background:transparent}
+.geo-legenda small{color:var(--val-muted);font-size:11px;margin-top:2px}
+.geo-legenda small:empty{display:none}
+
+/* seção do produtor */
+.geo-detail{margin-top:14px;padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.geo-sec-cab{display:flex;align-items:center;gap:9px}
+.geo-sec-cab strong{font-size:15px;font-weight:800;flex:1}
+.geo-contagem{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:#eef4f1;color:var(--val-muted);font-size:11.5px;font-weight:800}
+.geo-kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.geo-kpis > div{border:1px solid var(--val-line);border-radius:12px;padding:9px 10px;background:#fbfdfc;min-width:0}
+.geo-kpis span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--val-muted);font-weight:800}
+.geo-kpis b{display:block;font-size:18px;font-weight:820;letter-spacing:-.015em;margin:2px 0 1px;overflow-wrap:anywhere}
+.geo-kpis small{display:block;font-size:11px;color:var(--val-muted)}
+.geo-kpi-risco.critico{background:#fdecea;border-color:#f5c2bd}.geo-kpi-risco.critico b{color:#b42318}
+.geo-kpi-risco.atencao{background:#fff4dc;border-color:#f3dba6}.geo-kpi-risco.atencao b{color:#8a5a00}
+.geo-kpi-risco.ok{background:#e9f7f1;border-color:#bfe6d6}.geo-kpi-risco.ok b{color:#067a5c}
+.geo-culturas{display:flex;flex-direction:column;gap:5px}
+.geo-culturas div{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:center;font-size:12px}
+.geo-culturas span{color:var(--val-muted);font-weight:700}
+.geo-culturas i{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--val-emerald),#2d8cff);width:var(--w);min-width:3px}
+.geo-culturas b{font-variant-numeric:tabular-nums;font-size:12px}
+.geo-credito{display:flex;gap:7px;align-items:center;margin:0;font-size:12px;color:var(--val-muted)}
+.geo-credito .geo-svg{width:15px;height:15px;color:var(--val-emerald-dark)}
+.geo-motivos li{display:flex;flex-direction:column;gap:1px;padding:7px 9px 7px 11px;border-radius:9px;border-left:3px solid #e5a528;background:#fffaf0}
+.geo-motivos li.critico{border-left-color:#d92d20;background:#fef3f2}
+.geo-motivos li.mais{border-left-color:transparent;background:transparent;padding-top:0}
+.geo-acoes-prod .btn{gap:6px}
+.geo-acoes-prod .geo-svg{width:15px;height:15px}
+.geo-dobra{border:1px solid var(--val-line);border-radius:12px;background:#fff}
+.geo-dobra > summary{display:flex;align-items:center;gap:9px;padding:9px 11px;font-weight:800;font-size:13.5px;cursor:pointer;list-style:none}
+.geo-dobra > summary::-webkit-details-marker{display:none}
+.geo-dobra > summary .geo-ico{width:28px;height:28px;border-radius:8px}
+.geo-dobra > summary .geo-contagem{margin-left:auto}
+.geo-dobra > summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--val-muted);border-bottom:2px solid var(--val-muted);transform:rotate(45deg);margin:0 4px 3px 6px;transition:transform .2s}
+.geo-dobra[open] > summary::after{transform:rotate(225deg);margin-bottom:-3px}
+.geo-dobra > .geo-sug,.geo-dobra > .geo-docs{margin:0;padding:0 11px 11px}

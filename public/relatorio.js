@@ -43,7 +43,7 @@ async function iniciar() {
 const cabecalho = (tipo, titulo, meta) => `<header class="cabecalho">
   <div class="marca"><img class="simbolo" src="/brand/val-symbol-official.png" alt=""><img class="palavra" src="/brand/val-wordmark-only-official.png" alt="VAL"><span>Geomap</span></div>
   <div class="titulo"><div class="tipo">${esc(tipo)}</div><h1>${esc(titulo)}</h1><div class="meta">${meta.filter(Boolean).map(m => `<span>${esc(m)}</span>`).join('')}</div></div></header>`
-const kpi = (rotulo, valor, detalhe, html) => `<div class="kpi"><div class="rot">${esc(rotulo)}</div><div class="val">${html ? valor : esc(valor)}</div><div class="det">${esc(detalhe || '')}</div></div>`
+const kpi = (rotulo, valor, detalhe, html, classe = '') => `<div class="kpi ${classe}"><div class="rot">${esc(rotulo)}</div><div class="val">${html ? valor : esc(valor)}</div><div class="det">${esc(detalhe || '')}</div></div>`
 function rodape(base, extra = []) {
   const fontes = [...(base?.fontes || []), ...(base?.camadas?.fontes || [])].filter(f => f && !/Gerado por ferramentas/.test(f))
   return `<footer class="rodape">
@@ -88,8 +88,9 @@ async function relatorioProdutor(id, boot) {
       ${kpi('Lavoura estimada', `${fmt(pot.lavouraHa)} ha`, 'calibrada pelo IBGE')}
       ${kpi('Potencial em ano bom', `${fmt(pot.anoBom)} t`, `média de 5 anos: ${fmt(pot.media)} t`)}
       ${kpi('Porte', d.porte ? d.porte.rotulo : '—', d.porte ? `${fmt(d.porte.modulos, 1)} módulos fiscais` : 'sem áreas vinculadas')}
-      ${kpi('Socioambiental', selo(sa.nivel), sa.imoveisAnalisados ? `${sa.motivos.length} apontamento${sa.motivos.length === 1 ? '' : 's'} em ${sa.imoveisAnalisados} área${sa.imoveisAnalisados === 1 ? '' : 's'}` : 'sem áreas para analisar', true)}
+      ${kpi('Socioambiental', selo(sa.nivel), sa.imoveisAnalisados ? `${sa.motivos.length} apontamento${sa.motivos.length === 1 ? '' : 's'} em ${sa.imoveisAnalisados} área${sa.imoveisAnalisados === 1 ? '' : 's'}` : 'sem áreas para analisar', true, sa.imoveisAnalisados ? `nivel-${sa.nivel}` : '')}
     </section>
+    <section><p class="resumo">${resumoProdutor(p, d, sc)}</p></section>
     ${areas.length ? `<section><h2>Áreas no CAR e no SIGEF</h2><div class="mapa" id="mapa"></div><div class="tabela-rolavel">${tabelaAreas(areas)}</div></section>`
       : '<section><h2>Áreas</h2><p class="nota">Nenhuma área vinculada. Vincule as áreas no VAL Geomap (Completar produtores, ou busca por nome e matrícula) para o relatório trazer mapa, potencial e análise socioambiental.</p></section>'}
     <section class="duas">
@@ -103,6 +104,16 @@ async function relatorioProdutor(id, boot) {
   if (areas.length) await mapaProdutor(areas)
   pronto()
 }
+// resumo executivo em uma frase corrida, com os números que importam para a negociação
+function resumoProdutor(p, d, sc) {
+  const pot = d.potencial, sa = d.socioambiental
+  if (!d.imoveisContados) return `<b>${esc(p.name)}</b> ainda não tem áreas vinculadas no VAL Geomap. ${sc ? `Prioridade comercial: ${esc(sc.priority?.label || '')} (score ${fmt(sc.score)}/100).` : ''} Vincule as áreas (Completar produtores ou busca por nome e matrícula) para calcular lavoura, potencial e análise socioambiental.`
+  const principal = sa.motivos[0]
+  return `<b>${esc(p.name)}</b> tem ${d.imoveisContados} área${d.imoveisContados === 1 ? '' : 's'} vinculada${d.imoveisContados === 1 ? '' : 's'} (${fmt(pot.areaHa)} ha no registro), com <b>${fmt(pot.lavouraHa)} ha de lavoura estimada</b> e potencial de <b>${fmt(pot.anoBom)} t em ano bom</b> (${fmt(pot.media)} t na média de 5 anos). `
+    + (d.porte ? `Porte: ${esc(d.porte.rotulo.toLowerCase())}, ${fmt(d.porte.modulos, 1)} módulos fiscais. ` : '')
+    + (sa.nivel === 'ok' ? 'Triagem socioambiental <b>sem alerta</b> nas camadas consultadas.' : `Triagem socioambiental <b>${NIVEL[sa.nivel].toLowerCase()}</b>${principal ? `: ${esc(principal.texto.charAt(0).toLowerCase() + principal.texto.slice(1))}` : ''}${sa.motivos.length > 1 ? ` (e mais ${sa.motivos.length - 1})` : ''}.`)
+    + (sc ? ` Prioridade comercial: ${esc(sc.priority?.label || '')}, score ${fmt(sc.score)}/100.` : '')
+}
 function tabelaAreas(areas) {
   const s = areas.filter(i => !i.dentroDoCar || !areas.some(o => o.id === i.dentroDoCar)).reduce((t, i) => ({ a: t.a + (i.areaHa || 0), l: t.l + (i.lavouraHa || 0), p: t.p + (i.potencialT?.anoBom || 0) }), { a: 0, l: 0, p: 0 })
   return `<table class="t-areas"><thead><tr><th>#</th><th>Imóvel</th><th>Município</th><th class="n">Área (ha)</th><th class="n">Lavoura (ha)</th><th class="n">Potencial (t)</th><th>Matrícula · cartório</th><th>CAR</th><th class="n">MF</th><th>Socioamb.</th></tr></thead>
@@ -115,10 +126,11 @@ function tabelaAreas(areas) {
 }
 function tabelaPotencial(pot, mun) {
   const m = mun?.mercado
-  const linha = (c, nome) => `<tr><td>${nome}</td><td class="n">${fmt(pot[c])}</td><td class="n">${m ? `${fmt(m[c]?.bom, 2)} / ${fmt(m[c]?.med, 2)} / ${fmt(m[c]?.seca, 2)}` : '—'}</td></tr>`
-  return `<table><thead><tr><th>Cultura</th><th class="n">Ano bom (t)</th><th class="n">Rend. bom / médio / pior (t/ha)</th></tr></thead>
+  const maior = Math.max(1, pot.soja || 0, pot.milho || 0, pot.trigo || 0)
+  const linha = (c, nome) => `<tr><td>${nome}</td><td class="n">${fmt(pot[c])}</td><td style="width:28%"><span class="barra-cult" style="width:${((pot[c] || 0) / maior * 100).toFixed(1)}%"></span></td><td class="n">${m ? `${fmt(m[c]?.bom, 2)} / ${fmt(m[c]?.med, 2)} / ${fmt(m[c]?.seca, 2)}` : '—'}</td></tr>`
+  return `<table><thead><tr><th>Cultura</th><th class="n">Ano bom (t)</th><th></th><th class="n">Rend. bom / médio / pior (t/ha)</th></tr></thead>
     <tbody>${linha('soja', 'Soja (verão)')}${linha('milho', 'Milho (verão)')}${linha('trigo', 'Trigo (inverno)')}</tbody>
-    <tfoot><tr><td>Total</td><td class="n">${fmt(pot.anoBom)}</td><td class="n">média 5 anos: ${fmt(pot.media)} t</td></tr></tfoot></table>
+    <tfoot><tr><td>Total</td><td class="n">${fmt(pot.anoBom)}</td><td></td><td class="n">média 5 anos: ${fmt(pot.media)} t</td></tr></tfoot></table>
     <p class="nota">Mix de culturas e rendimentos de ${esc(mun?.nome || 'município')} no IBGE (PAM 2021–2025)${mun?.moduloFiscalHa ? `; módulo fiscal de ${fmt(mun.moduloFiscalHa)} ha` : ''}.</p>`
 }
 function fichaComercial(p, sc, porte) {
@@ -182,6 +194,7 @@ async function relatorioMunicipio(nome) {
       ${kpi('Potencial de grãos', `${fmt(i.potencialAnoBomT)} t`, `ano bom · média: ${fmt(i.potencialMediaT)} t`)}
       ${kpi('Cobertura VAL', `${fmt(c.percentual, 1)}%`, `${fmt(c.imoveisVinculados)} imóveis · ${fmt(c.potencialAnoBomT)} t`)}
     </section>
+    <section><p class="resumo">${resumoMunicipio(d, oport)}</p></section>
     <section><h2>Mercado: IBGE e Banco Central</h2>${tabelaMercado(m.mercado)}</section>
     <section><h2>Porte dos imóveis (Lei 8.629/93)</h2>${tabelaPortes(d.portes)}</section>
     <section><h2>Mapa</h2><div class="mapa" id="mapa"></div><p class="nota">Números em laranja: os maiores imóveis sem produtor do VAL (tabela a seguir). Contorno: limite municipal do IBGE.</p></section>
@@ -191,6 +204,14 @@ async function relatorioMunicipio(nome) {
     ${rodape(d.base)}`
   await mapaMunicipio(d, oport)
   pronto()
+}
+function resumoMunicipio(d, oport) {
+  const m = d.municipio, i = d.imoveis, c = d.cobertura, sa = d.socioambiental
+  const lavOp = oport.reduce((s, x) => s + (x.lavouraHa || 0), 0), potOp = oport.reduce((s, x) => s + (x.potencialT?.anoBom || 0), 0)
+  return `<b>${esc(m.nome)}</b> tem ${fmt(i.car)} imóveis no CAR (${fmt(i.areaCarHa)} ha declarados) e <b>${fmt(i.lavouraHa)} ha de lavoura de verão</b> no IBGE, com potencial de <b>${fmt(i.potencialAnoBomT)} t em ano bom</b>. `
+    + `O VAL cobre <b>${fmt(c.percentual, 1)}%</b> desse potencial com ${fmt(c.imoveisVinculados)} imóve${c.imoveisVinculados === 1 ? 'l vinculado' : 'is vinculados'}. `
+    + (oport.length ? `Os ${oport.length} maiores imóveis sem produtor do VAL somam ${fmt(lavOp)} ha de lavoura e ${fmt(potOp)} t em ano bom. ` : '')
+    + `A triagem socioambiental aponta ${fmt(sa.critico)} imóve${sa.critico === 1 ? 'l crítico' : 'is críticos'} e ${fmt(sa.atencao)} com atenção.`
 }
 function tabelaMercado(m) {
   if (!m) return '<p class="nota">Sem dados de mercado.</p>'

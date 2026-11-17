@@ -20,7 +20,8 @@ const cruzam = (a, b) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b
 const haDaCaixa = b => Math.max(0, b[2] - b[0]) * 111.32 * Math.cos(((b[1] + b[3]) / 2) * Math.PI / 180) * Math.max(0, b[3] - b[1]) * 110.57 * 100
 
 // Pontos de uma grade dentro do polígono, cada um valendo `ha` hectares. Célula ~ alvoHa, no máximo max×max pontos.
-export function amostras(g, b = caixa(g), { alvoHa = 0.1, max = 60 } = {}) {
+// 0,25 ha basta: os limites das regras começam em 1 ha.
+export function amostras(g, b = caixa(g), { alvoHa = 0.25, max = 40 } = {}) {
   const area = haDaCaixa(b)
   if (!(area > 0)) return { pts: [], ha: 0 }
   const n = Math.max(4, Math.min(max, Math.ceil(Math.sqrt(area / alvoHa))))
@@ -32,10 +33,10 @@ export function amostras(g, b = caixa(g), { alvoHa = 0.1, max = 60 } = {}) {
   return { pts, ha: area / (n * n) }
 }
 // Hectares de sobreposição entre dois polígonos: amostra o menor e conta quantos pontos caem no outro.
-export function sobreposicaoHa(gA, bA, gB, bB, cacheA) {
+export function sobreposicaoHa(gA, bA, gB, bB, cacheA, cacheB) {
   if (!cruzam(bA, bB)) return 0
   const aMenor = haDaCaixa(bA) <= haDaCaixa(bB)
-  const amostra = aMenor ? (cacheA || amostras(gA, bA)) : amostras(gB, bB)
+  const amostra = aMenor ? (cacheA || amostras(gA, bA)) : (cacheB || amostras(gB, bB))
   const outro = aMenor ? gB : gA, bo = aMenor ? bB : bA
   let n = 0
   for (const pt of amostra.pts) if (pt[0] >= bo[0] && pt[0] <= bo[2] && pt[1] >= bo[1] && pt[1] <= bo[3] && contem(outro, pt)) n++
@@ -79,8 +80,8 @@ export function cruzarImovel(g, idx, b = caixa(g)) {
         const x = it.x
         let ha
         if (it.g) {
-          // amostra do imóvel reaproveitada quando o imóvel é o menor dos dois
-          ha = haDaCaixa(b) <= haDaCaixa(it.b) ? sobreposicaoHa(g, b, it.g, it.b, amostraImovel()) : sobreposicaoHa(g, b, it.g, it.b)
+          // amostra-se o menor dos dois; a do imóvel e a de cada polígono da camada são calculadas uma vez só
+          ha = haDaCaixa(b) <= haDaCaixa(it.b) ? sobreposicaoHa(g, b, it.g, it.b, amostraImovel()) : sobreposicaoHa(g, b, it.g, it.b, null, (it.amostra ||= amostras(it.g, it.b)))
         } else ha = contem(g, x.p) ? (x.ha || 0) || MIN_HA : 0   // embargo só com ponto: conta se o ponto cai no imóvel
         if (ha < MIN_HA) continue
         if (it.tipo === 'd') (sa.d ||= []).push([x.a, r1(ha), x.bi === 'Pampa' ? 'P' : 'M'])

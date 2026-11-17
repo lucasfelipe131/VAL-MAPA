@@ -152,10 +152,38 @@ main{flex:1;display:flex;flex-direction:column}
 .deck-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 
 /* login, modal, toast */
-.login{min-height:100vh;display:grid;place-items:center;padding:20px}
-.login-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);padding:30px;width:360px;max-width:100%;display:flex;flex-direction:column;gap:12px;text-align:center}
-.login-brand{background:linear-gradient(160deg,#071b19,#0e3530);border-radius:14px;padding:22px 26px;display:grid;place-items:center;margin:-8px -8px 4px}
-.login-logo{height:120px;width:auto;filter:drop-shadow(0 8px 18px rgba(0,0,0,.35))}
+/* login: painel da marca à esquerda, formulário à direita */
+.login{min-height:100vh;min-height:100dvh;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(380px,.85fr);background:var(--val-canvas)}
+.login-hero{position:relative;overflow:hidden;display:flex;align-items:center;padding:56px clamp(28px,6vw,88px);color:#fff;
+ background:radial-gradient(circle at 18% 12%,rgba(0,200,150,.22),transparent 42%),radial-gradient(circle at 92% 88%,rgba(45,140,255,.18),transparent 40%),linear-gradient(160deg,#061614,#0b2b26 55%,#0e3530)}
+.login-hero::before{content:"";position:absolute;inset:-10%;opacity:.16;pointer-events:none;
+ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='520' viewBox='0 0 520 520'%3E%3Cg fill='none' stroke='%23c8f25e' stroke-width='1.1'%3E%3Cpath d='M-20 80c70-40 140 30 220 0s150-60 330 10'/%3E%3Cpath d='M-20 130c80-35 150 40 230 5s160-55 320 15'/%3E%3Cpath d='M-20 185c70-30 160 45 240 10s150-50 310 20'/%3E%3Cpath d='M-20 245c90-40 150 35 235 0s170-60 315 25'/%3E%3Cpath d='M-20 305c80-30 150 40 230 10s160-45 320 15'/%3E%3Cpath d='M-20 365c70-35 160 30 240 0s150-55 310 20'/%3E%3Cpath d='M-20 425c90-30 150 45 235 10s160-50 315 15'/%3E%3Cpath d='M-20 485c80-40 150 35 230 5s170-60 320 20'/%3E%3C/g%3E%3C/svg%3E");background-size:520px 520px}
+.login-hero-inner{position:relative;max-width:540px}
+.login-logo{height:92px;width:auto;filter:drop-shadow(0 10px 22px rgba(0,0,0,.4))}
+.login-kicker{margin:22px 0 0;font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:rgba(215,242,234,.7)}
+.login-kicker b{color:var(--val-lime)}
+.login-headline{font-size:clamp(26px,3.2vw,38px);line-height:1.1;font-weight:800;letter-spacing:-.02em;margin:8px 0 30px;color:#fff}
+.login-features{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.login-features li{display:grid;grid-template-columns:42px 1fr;gap:14px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.09)}
+.login-features b{display:block;font-size:15px}
+.login-features small{display:block;color:rgba(215,242,234,.66);font-size:13px;margin-top:2px}
+.lf-ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:rgba(0,200,150,.14);border:1px solid rgba(0,200,150,.28);color:var(--val-lime)}
+.lf-ico svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.login-lado{display:grid;place-items:center;padding:28px 20px}
+.login-card{background:#fff;border-radius:20px;box-shadow:0 24px 60px rgba(7,42,36,.12);border:1px solid var(--val-line);padding:34px;width:380px;max-width:100%;display:flex;flex-direction:column;gap:14px}
+.login-card h1{font-size:24px;margin:2px 0 0}
+.login-card .hint{margin:0}
+.login-simbolo{height:44px;width:auto;align-self:flex-start}
+.login-card .btn.primary{padding:12px 14px;font-size:15px}
+.login-rodape{margin:4px 0 0;color:var(--val-muted);font-size:11.5px;text-align:center}
+@media (max-width:900px){
+ .login{grid-template-columns:1fr}
+ .login-hero{padding:28px 22px}
+ .login-logo{height:64px}
+ .login-headline{font-size:24px;margin-bottom:6px}
+ .login-features{display:none}
+ .login-lado{padding:20px 16px 32px;margin-top:-18px}
+}
 .modal{position:fixed;inset:0;background:rgba(7,27,25,.55);display:grid;place-items:center;z-index:900;padding:16px}
 .modal-card{background:#fff;border-radius:16px;box-shadow:var(--shadow);width:620px;max-width:100%;max-height:92vh;overflow:auto;padding:22px}
 .modal-card h2{margin:0 0 12px}
@@ -247,4 +275,36 @@ body.map-fullscreen{overflow:hidden}
  .score-pill{min-width:26px;padding:1px 6px;font-size:9px}
  .page-break{break-before:page}
  .hint{font-size:9px}
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Acabamento visual do VAL Geomap: cabeçalho, painel do mapa e cartão do produtor
+   --------------------------------------------------------------------------------------------- */
+.topbar{border-bottom:1px solid rgba(0,200,150,.2);padding:9px 18px}
+.brand-text strong{text-transform:none;letter-spacing:-.01em;font-size:19px;color:var(--val-lime)}
+.brand-text small{letter-spacing:.12em;margin-top:4px}
+.topbar .badge.muted{background:rgba(255,255,255,.07);color:rgba(215,242,234,.8);border:1px solid rgba(255,255,255,.1);white-space:nowrap}
+@media (max-width:1180px){.topbar #storage-badge{display:none}}
+.topbar #logout{color:rgba(215,242,234,.88);border:1px solid rgba(255,255,255,.16);padding:6px 12px}
+.topbar #logout:hover{background:rgba(255,255,255,.08);box-shadow:none;transform:none}
+
+#view-map.active{grid-template-columns:352px 1fr}
+.map-panel{background:linear-gradient(180deg,#f1f6f4,#ecf3f0);padding:12px;gap:12px}
+.map-panel .panel-block,.map-panel .panel-block:last-child{background:#fff;border:1px solid var(--val-line);border-radius:16px;padding:14px;gap:10px;box-shadow:0 1px 2px rgba(7,42,36,.04),0 10px 24px rgba(7,42,36,.05)}
+.map-panel .panel-block > strong,.map-panel .panel-block > .row > strong,.panel-title{font-size:14.5px;font-weight:800;color:var(--val-text);letter-spacing:-.005em}
+.map-panel .field span{font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.map-panel .field input,.map-panel .field select{background:#f8fbfa}
+.map-panel .field input:focus,.map-panel .field select:focus{background:#fff}
+.legend-items{gap:7px}
+
+/* cartão do produtor sobre o mapa: acima dos controles; o seletor de camadas anda para o lado */
+.detail{width:404px;border-radius:18px;border:1px solid var(--val-line);box-shadow:0 24px 60px rgba(7,42,36,.18);padding:18px;z-index:1100}
+.detail h2{font-size:20px}
+.detail .close{top:10px;right:12px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;line-height:1}
+.detail .close:hover{background:rgba(0,0,0,.05)}
+.blocks div{background:#f4f8f6;border:1px solid var(--val-line)}
+#view-map.com-detalhe .leaflet-top.leaflet-right{right:420px;transition:right .2s}
+@media (max-width:900px){
+ #view-map.active{grid-template-columns:1fr}
+ #view-map.com-detalhe .leaflet-top.leaflet-right{right:0}
 }
