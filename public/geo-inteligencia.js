@@ -1,4 +1,4 @@
-// VAL Mapa — inteligência geo (CAR + SIGEF). Módulo opcional carregado depois do app.js.
+// VAL Geomap — inteligência geo (CAR + SIGEF). Módulo opcional carregado depois do app.js.
 // Acrescenta, sem mudar a tela existente:
 //  · painel "Imóveis rurais" no mapa: busca por nome do produtor (mesmo sem cadastro) ou por matrícula,
 //    pins nas áreas encontradas, seleção e vínculo a um produtor (existente ou novo);
@@ -52,6 +52,7 @@ function injetarPainel() {
     <div class="row between"><button id="geo-buscar" class="btn small primary" type="button">Buscar áreas</button><button id="geo-limpar" class="btn ghost small" type="button" hidden>Limpar pins</button></div>
     <p class="hint" id="geo-dica">Acha as áreas pelo nome que aparece no registro do imóvel (SIGEF), mesmo de quem ainda não está cadastrado no VAL. Procura na região toda, aceita grafia parecida e sobrenome.</p>
     <div class="row between geo-completar"><span class="hint">Produtores do VAL sem áreas: veja as pistas pelo nome e pelo ponto do cadastro.</span><button id="geo-completar" class="btn small" type="button">Completar produtores</button></div>
+    <div class="row between geo-completar"><span class="hint">Potencial, mercado, carteira, oportunidades e alertas do município escolhido acima.</span><button id="geo-rel-mun" class="btn small" type="button">Relatório do município</button></div>
     <div id="geo-res"></div>`
   const primeiro = painel.querySelector('.panel-block')
   primeiro ? primeiro.after(bloco) : painel.prepend(bloco)
@@ -62,6 +63,11 @@ function injetarPainel() {
   bloco.querySelector('#geo-q').onkeydown = e => { if (e.key === 'Enter') buscar() }
   bloco.querySelector('#geo-limpar').onclick = limparResultado
   bloco.querySelector('#geo-completar').onclick = completarProdutores
+  bloco.querySelector('#geo-rel-mun').onclick = () => {
+    const mun = document.getElementById('geo-mun').value
+    if (!mun) { V.toast('Escolha o município no campo Município.', true); document.getElementById('geo-mun').focus(); return }
+    window.open(`/relatorio.html?municipio=${encodeURIComponent(mun)}`, '_blank', 'noopener')
+  }
   bloco.querySelector('#geo-res').onclick = cliqueResultado
   bloco.querySelector('#geo-res').onchange = mudancaResultado
 }
@@ -102,12 +108,13 @@ function estilo(f) {
   const p = f.properties
   if (G.sel.has(p.id)) return { color: COR.selecionado, weight: 3, fillColor: COR.selecionado, fillOpacity: .3 }
   if (p.dentroDoCar) return { color: COR.parcela, weight: 1, dashArray: '3 3', fillOpacity: 0, opacity: .8 }
-  if (p.produtores?.length) return { color: COR.vinculado, weight: 1.6, fillColor: COR.vinculado, fillOpacity: .3 }
-  return { color: COR.livre, weight: 1.2, fillColor: COR.livre, fillOpacity: .1 }
+  const base = p.produtores?.length ? { color: COR.vinculado, weight: 1.6, fillColor: COR.vinculado, fillOpacity: .3 } : { color: COR.livre, weight: 1.2, fillColor: COR.livre, fillOpacity: .1 }
+  // contorno vermelho: triagem socioambiental crítica (embargo, TI, UC de proteção integral, supressão depois de 2020)
+  return p.socioambiental?.nivel === 'critico' ? { ...base, color: '#d92d20', weight: 2.2 } : base
 }
 function aoCriarFeicao(f, layer) {
   const p = f.properties
-  layer.bindTooltip(`<b>${esc(rotulo(p))}</b><br>${esc(p.fonte)}${p.dentroDoCar ? ' (dentro de um CAR)' : ''} · ${esc(p.municipio)} · ${fmt(p.areaHa, 1)} ha${p.potencialT.anoBom ? ` · ~${fmt(p.potencialT.anoBom)} t/ano` : ''}${p.matricula ? `<br>mat. ${esc(p.matricula)}` : ''}${p.produtores?.length ? `<br>Vinculado a ${esc(p.produtores.map(produtorNome).join(', '))}` : ''}`, { sticky: true })
+  layer.bindTooltip(`<b>${esc(rotulo(p))}</b><br>${esc(p.fonte)}${p.dentroDoCar ? ' (dentro de um CAR)' : ''} · ${esc(p.municipio)} · ${fmt(p.areaHa, 1)} ha${p.potencialT.anoBom ? ` · ~${fmt(p.potencialT.anoBom)} t/ano` : ''}${p.matricula ? `<br>mat. ${esc(p.matricula)}` : ''}${p.produtores?.length ? `<br>Vinculado a ${esc(p.produtores.map(produtorNome).join(', '))}` : ''}${p.porte ? `<br>${esc(p.porte.rotulo)} · ${fmt(p.porte.modulos, 1)} MF` : ''}${p.socioambiental && p.socioambiental.nivel !== 'ok' ? `<br><b style="color:${p.socioambiental.nivel === 'critico' ? '#b42318' : '#8a5a00'}">${p.socioambiental.nivel === 'critico' ? 'Risco crítico' : 'Atenção'}:</b> ${esc(p.socioambiental.motivos[0]?.texto || '')}` : ''}`, { sticky: true })
   layer.on('click', () => {
     if (!G.itens.some(i => i.id === p.id)) G.itens.push(p)
     G.sel.has(p.id) ? G.sel.delete(p.id) : G.sel.add(p.id)
@@ -185,7 +192,7 @@ function desenharResultado() {
         <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)}${i.noMunicipio === false && G.busca?.munNome ? ` <em>(fora de ${esc(G.busca.munNome)})</em>` : ''} · ${fmt(i.areaHa, 1)} ha${i.potencialT.anoBom ? ` · ~${fmt(i.potencialT.anoBom)} t/ano` : ''}</span>
         ${i.matricula ? `<span>mat. ${esc(i.matricula)}${i.cns ? ` · cartório ${esc(i.cns)}` : ''}</span>` : ''}
         ${i.produtores?.length ? `<span class="geo-vinc">Vinculado a ${esc(i.produtores.map(produtorNome).join(', '))}</span>` : ''}</div>
-      <div class="geo-item-acoes">${i.relacao ? `<span class="badge ${REL[i.relacao][1]}" title="${esc(REL[i.relacao][2])}">${esc(REL[i.relacao][0])}</span>` : ''}<button class="btn ghost small" type="button" data-geo-ver="${esc(i.id)}">Ver</button></div></li>`).join('')}</ul>
+      <div class="geo-item-acoes">${badgeRisco(i)}${i.relacao ? `<span class="badge ${REL[i.relacao][1]}" title="${esc(REL[i.relacao][2])}">${esc(REL[i.relacao][0])}</span>` : ''}<button class="btn ghost small" type="button" data-geo-ver="${esc(i.id)}">Ver</button></div></li>`).join('')}</ul>
     ${G.itens.some(i => i.relacao === 'parecido') ? '<p class="hint">“Nome parecido”: todas as palavras aparecem, alguma com uma letra diferente (erro de digitação no cadastro ou no registro).</p>' : ''}
     ${G.itens.some(i => i.relacao === 'sobrenome') ? '<p class="hint">“Mesmo sobrenome”: o registro não traz o primeiro nome buscado. Pode ser parente ou área da família; confira antes de vincular.</p>' : ''}
     ${G.busca?.sobrenomeCortado ? `<p class="hint">O sobrenome é comum: mostrando 80 de ${fmt(G.busca.sobrenomeCortado)} áreas com ele. Escreva o nome completo ou escolha o município.</p>` : ''}
@@ -283,15 +290,28 @@ async function secaoDetalhe(producerId) {
     if (V.state.selected !== producerId) return
     const p = V.state.data.producers.find(x => x.id === producerId)
     const pot = r.potencial
+    const sa = r.socioambiental
     sec.innerHTML = `<strong>Áreas no CAR/SIGEF</strong>
       ${r.vinculos.length ? `<p class="meta">${r.imoveisContados} imóve${r.imoveisContados === 1 ? 'l' : 'is'} · lavoura estimada <b>${fmt(pot.lavouraHa)} ha</b> · potencial <b>${fmt(pot.anoBom)} t/ano</b> em ano bom (soja ${fmt(pot.soja)} · milho ${fmt(pot.milho)} · trigo ${fmt(pot.trigo)}) · ${fmt(pot.media)} t na média de 5 anos</p>
+      <p class="meta">${r.porte ? `<b>${esc(r.porte.rotulo)}</b> (${fmt(r.porte.modulos, 1)} módulos fiscais) · ${esc(r.porte.credito)} · ` : ''}Socioambiental: ${seloRisco(sa?.nivel)}</p>
+      ${sa?.motivos?.length ? `<ul class="geo-motivos">${sa.motivos.slice(0, 4).map(m => `<li>${seloRisco(m.nivel)} ${esc(m.texto)} <small>${esc(m.imovel)} · ${esc(m.fonte)}</small></li>`).join('')}${sa.motivos.length > 4 ? `<li><small>e mais ${sa.motivos.length - 4} no relatório</small></li>` : ''}</ul>` : ''}
       <ul class="geo-lista compacta">${r.vinculos.map(l => `<li><div class="geo-item"><b>${esc(l.imovel ? rotulo(l.imovel) : l.nome || l.imovelId)}</b><span>${esc(l.fonte)} · ${esc(l.municipio)} · ${fmt(l.areaHa, 1)} ha${l.matricula ? ` · mat. ${esc(l.matricula)}` : ''}</span></div>
-        <div class="geo-item-acoes">${l.imovel ? `<button class="btn ghost small" type="button" data-geo-ir="${esc(l.imovelId)}">Ver</button>` : ''}<button class="btn ghost small danger" type="button" data-geo-desvincular="${esc(l.id)}" aria-label="Remover vínculo">×</button></div></li>`).join('')}</ul>
-      <div class="detail-actions"><button class="btn small" type="button" data-geo-mostrar>Mostrar áreas no mapa</button><button class="btn small" type="button" data-geo-buscar-prod>Buscar mais áreas</button>${pot.anoBom ? `<button class="btn small ghost" type="button" data-geo-usar title="Grava a lavoura estimada como área e o potencial em ano bom como volume estimado">Usar no cadastro</button>` : ''}</div>`
-        : `<p class="meta">Nenhuma área vinculada. Confira as sugestões abaixo ou busque pelo nome no painel do mapa.</p><div class="detail-actions"><button class="btn small" type="button" data-geo-buscar-prod>Buscar áreas pelo nome</button></div>`}
-      <div class="geo-sug" id="geo-sug"><p class="meta">Procurando sugestões…</p></div>`
+        <div class="geo-item-acoes">${l.imovel ? badgeRisco(l.imovel) : ''}${l.imovel ? `<button class="btn ghost small" type="button" data-geo-ir="${esc(l.imovelId)}">Ver</button>` : ''}<button class="btn ghost small danger" type="button" data-geo-desvincular="${esc(l.id)}" aria-label="Remover vínculo">×</button></div></li>`).join('')}</ul>
+      <div class="detail-actions"><button class="btn small primary" type="button" data-geo-relatorio>Relatório do produtor</button><button class="btn small" type="button" data-geo-mostrar>Mostrar áreas no mapa</button><button class="btn small" type="button" data-geo-buscar-prod>Buscar mais áreas</button>${pot.anoBom ? `<button class="btn small ghost" type="button" data-geo-usar title="Grava a lavoura estimada como área e o potencial em ano bom como volume estimado">Usar no cadastro</button>` : ''}</div>`
+        : `<p class="meta">Nenhuma área vinculada. Confira as sugestões abaixo ou busque pelo nome no painel do mapa.</p><div class="detail-actions"><button class="btn small" type="button" data-geo-buscar-prod>Buscar áreas pelo nome</button><button class="btn small" type="button" data-geo-relatorio>Relatório do produtor</button></div>`}
+      <div class="geo-sug" id="geo-sug"><p class="meta">Procurando sugestões…</p></div>
+      <div class="geo-docs" id="geo-docs"><p class="meta">Carregando documentos…</p></div>`
     carregarSugestoes(producerId)
+    carregarDocumentos(producerId)
     sec.onclick = async e => {
+      if (e.target.closest('[data-geo-relatorio]')) return window.open(`/relatorio.html?produtor=${encodeURIComponent(producerId)}`, '_blank', 'noopener')
+      if (e.target.closest('[data-geo-doc-enviar]')) return enviarDocumento(producerId)
+      const apagar = e.target.closest('[data-geo-doc-apagar]')
+      if (apagar) {
+        if (!confirm(`Apagar o documento “${apagar.dataset.nome}”? Não dá para desfazer.`)) return
+        try { await V.api(`/api/geo/documentos/${encodeURIComponent(apagar.dataset.geoDocApagar)}`, { method: 'DELETE' }); V.toast('Documento apagado.'); carregarDocumentos(producerId) } catch (er) { V.toast(er.message, true) }
+        return
+      }
       const sv = e.target.closest('[data-geo-sug-ver]'), sl = e.target.closest('[data-geo-sug-vincular]')
       if (sv || sl) {
         const i = todasSugestoes().find(x => x.id === (sv ? sv.dataset.geoSugVer : sl.dataset.geoSugVincular)); if (!i) return
@@ -315,6 +335,47 @@ async function secaoDetalhe(producerId) {
     }
   } catch (e) { sec.innerHTML = `<strong>Áreas no CAR/SIGEF</strong><p class="meta">${esc(e.message)}</p>` }
 }
+// Documentos do produtor: matrícula, KML, laudos, contratos (até 10 MB, lista fechada de tipos no servidor)
+const CATEG_DOC = { matricula: 'Matrícula', car: 'CAR', kml: 'KML / mapa', laudo: 'Laudo', contrato: 'Contrato', outro: 'Outro' }
+const tamanho = b => (b < 1024 ? `${b} B` : b < 1048576 ? `${fmt(b / 1024)} KB` : `${fmt(b / 1048576, 1)} MB`)
+async function carregarDocumentos(producerId) {
+  const box = document.getElementById('geo-docs'); if (!box) return
+  try {
+    const r = await V.api(`/api/geo/documentos?producerId=${encodeURIComponent(producerId)}`)
+    if (V.state.selected !== producerId || !document.getElementById('geo-docs')) return
+    document.getElementById('geo-docs').innerHTML = `<strong>Documentos</strong>
+      ${r.itens.length ? `<ul class="geo-lista compacta">${r.itens.map(d => `<li><div class="geo-item"><b><a href="/api/geo/documentos/${encodeURIComponent(d.id)}">${esc(d.nome)}</a></b>
+          <span>${esc(CATEG_DOC[d.categoria] || d.categoria)} · ${tamanho(d.size)} ·${new Date(d.createdAt).toLocaleDateString('pt-BR')}${d.descricao ? ` · ${esc(d.descricao)}` : ''}</span></div>
+          <div class="geo-item-acoes"><button class="btn ghost small danger" type="button" data-geo-doc-apagar="${esc(d.id)}" data-nome="${esc(d.nome)}" aria-label="Apagar ${esc(d.nome)}">×</button></div></li>`).join('')}</ul>`
+        : '<p class="meta">Nenhum documento. Anexe matrícula, KML do GeoMart, laudos ou contratos (até 10 MB).</p>'}
+      <div class="geo-doc-form">
+        <input type="file" id="geo-doc-arquivo" accept=".pdf,.kml,.kmz,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip">
+        <div class="grid-2"><label class="field"><span>Tipo</span><select id="geo-doc-cat">${Object.entries(CATEG_DOC).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+        <label class="field"><span>Descrição</span><input id="geo-doc-desc" maxlength="200" placeholder="Ex.: matrícula 16.213"></label></div>
+        <button class="btn small" type="button" data-geo-doc-enviar>Anexar documento</button>
+      </div>`
+  } catch (e) { const b = document.getElementById('geo-docs'); if (b) b.innerHTML = `<strong>Documentos</strong><p class="meta">${esc(e.message)}</p>` }
+}
+async function enviarDocumento(producerId) {
+  const arq = document.getElementById('geo-doc-arquivo')?.files?.[0]
+  if (!arq) return V.toast('Escolha o arquivo.', true)
+  if (arq.size > 10 * 1024 * 1024) return V.toast('O arquivo passa de 10 MB.', true)
+  const q = new URLSearchParams({ producerId, nome: arq.name, categoria: document.getElementById('geo-doc-cat').value, descricao: document.getElementById('geo-doc-desc').value.trim() })
+  const btn = document.querySelector('[data-geo-doc-enviar]'); btn.disabled = true; btn.textContent = 'Enviando…'
+  try {
+    // o arquivo vai em binário (sem base64), por isso fetch direto e não V.api, que manda JSON
+    const r = await fetch(`/api/geo/documentos?${q}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: arq })
+    const corpo = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(corpo.error || `Erro ${r.status}`)
+    V.toast(`${arq.name} anexado.`); carregarDocumentos(producerId)
+  } catch (e) { V.toast(e.message, true); btn.disabled = false; btn.textContent = 'Anexar documento' }
+}
+// Selo socioambiental (triagem com INPE, FUNAI, ICMBio e IBAMA)
+const ROT_RISCO = { critico: 'risco crítico', atencao: 'atenção', ok: 'sem alerta' }
+const seloRisco = n => `<span class="badge ${n === 'critico' ? 'risco-critico' : n === 'atencao' ? 'watch' : 'high'}">${ROT_RISCO[n || 'ok']}</span>`
+const badgeRisco = i => (i?.socioambiental && i.socioambiental.nivel !== 'ok'
+  ? `<span class="badge ${i.socioambiental.nivel === 'critico' ? 'risco-critico' : 'watch'}" title="${esc(i.socioambiental.motivos.map(m => m.texto).join(' · '))}">${ROT_RISCO[i.socioambiental.nivel]}</span>` : '')
+
 // Sugestões para o produtor aberto: pelo nome (região toda) e pelo ponto do cadastro. Só mostram; vincular é um clique.
 const todasSugestoes = () => (G.sug ? [...G.sug.nome, ...G.sug.dentro, ...G.sug.perto] : [])
 async function carregarSugestoes(producerId) {
@@ -342,7 +403,7 @@ function linhaSugestao(i) {
       <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)} · ${fmt(i.areaHa, 1)} ha${i.potencialT?.anoBom ? ` · ~${fmt(i.potencialT.anoBom)} t/ano` : ''}</span>
       ${i.matricula ? `<span>mat. ${esc(i.matricula)}</span>` : ''}
       ${i.produtores?.length ? `<span class="geo-vinc">Vinculado a ${esc(i.produtores.map(produtorNome).join(', '))}</span>` : ''}</div>
-    <div class="geo-item-acoes">${tag}<button class="btn ghost small" type="button" data-geo-sug-ver="${esc(i.id)}">Ver</button><button class="btn small" type="button" data-geo-sug-vincular="${esc(i.id)}">Vincular</button></div></li>`
+    <div class="geo-item-acoes">${tag}${badgeRisco(i)}<button class="btn ghost small" type="button" data-geo-sug-ver="${esc(i.id)}">Ver</button><button class="btn small" type="button" data-geo-sug-vincular="${esc(i.id)}">Vincular</button></div></li>`
 }
 
 // Painel: todos os produtores do VAL com a melhor pista de área de cada um

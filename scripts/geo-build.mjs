@@ -7,6 +7,8 @@
 //              e do CSV de área consolidada do SICAR, já com o cruzamento SIGEF × CAR
 //   --mercado  JSON por município com soja/milho/trigo (IBGE PAM e Banco Central SICOR), formato compacto:
 //              {"Município": {"soja": [área 2025, rend. ano bom, rend. médio, pior, custeio 24/25 ha, R$/ha, custeio 25/26 ha, R$/ha, jul–out/25, jul–out/26], ...}}
+//   --camadas  (opcional) camadas.json.gz do scripts/geo-camadas.mjs: cada imóvel ganha `sa`, a sobreposição com
+//              desmatamento (PRODES), terras indígenas, unidades de conservação e embargos (IBAMA/ICMBio)
 //
 // Saída: 1ª linha = cabeçalho JSON (fontes, municípios, mercado); depois uma linha por imóvel:
 //        <propriedades JSON> TAB <geometria GeoJSON>. Assim o servidor indexa as propriedades e guarda a geometria como texto.
@@ -14,6 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import vm from 'node:vm'
+import { indexarCamadas, cruzarImovel } from '../server/geo-socioambiental.js'
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []))
 if (!args.imoveis || !args.mercado) {
@@ -27,6 +30,9 @@ vm.runInNewContext(fs.readFileSync(args.imoveis, 'utf8'), ctx)
 const camadas = ctx.window.IMOVEIS_REGIAO || []
 const mercado = JSON.parse(fs.readFileSync(args.mercado, 'utf8'))
 const cabecalhoFonte = (fs.readFileSync(args.imoveis, 'utf8').match(/^\/\*([\s\S]*?)\*\//) || [])[1]?.trim() || ''
+const camadasSA = args.camadas ? JSON.parse(zlib.gunzipSync(fs.readFileSync(args.camadas)).toString()) : null
+const indiceSA = camadasSA ? indexarCamadas(camadasSA) : null
+if (indiceSA) console.log(`Camadas socioambientais: ${indiceSA.total} feições (${camadasSA.geradoEm.slice(0, 10)})`)
 
 // Municípios: os que o recorte gravou (window.IMOVEIS_MUNICIPIOS, com --municipios); senão a lista das Missões
 // (região de São Luiz Gonzaga mais as microrregiões de Santo Ângelo e Cerro Largo, IBGE).
@@ -59,7 +65,7 @@ function bbox(g) { let b = [Infinity, Infinity, -Infinity, -Infinity]; const rec
 const num = v => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0 }
 
 const linhas = []
-let nCar = 0, nSig = 0
+let nCar = 0, nSig = 0, nSA = 0
 for (const c of camadas) {
   for (const f of c.data.features) {
     const p = f.properties || {}
@@ -73,6 +79,7 @@ for (const c of camadas) {
     reg.mun = String(p._cod_ibge || '')
     if (!MUNICIPIOS[reg.mun]) continue
     reg.c = pontoInterno(f.geometry); reg.b = bbox(f.geometry)
+    if (indiceSA) { const sa = cruzarImovel(f.geometry, indiceSA); if (sa) { reg.sa = sa; nSA++ } }
     for (const k of Object.keys(reg)) if (reg[k] === '' || reg[k] === 0 && !['a', 'ac'].includes(k)) delete reg[k]
     linhas.push(`${JSON.stringify(reg)}\t${JSON.stringify(f.geometry)}`)
     ehCar ? nCar++ : nSig++
@@ -87,7 +94,8 @@ const cab = {
     'Mercado: IBGE Produção Agrícola Municipal (tabela 1612, 2021–2025) e Banco Central SICOR (custeio)',
     cabecalhoFonte
   ].filter(Boolean),
-  municipios: MUNICIPIOS, mercado, contagem: { car: nCar, sigef: nSig }
+  municipios: MUNICIPIOS, mercado, contagem: { car: nCar, sigef: nSig, comAlertaSocioambiental: nSA },
+  camadas: camadasSA ? { geradoEm: camadasSA.geradoEm, fontes: camadasSA.fontes, contagem: { desmatamento: camadasSA.desm.length, terrasIndigenas: camadasSA.ti.length, unidadesConservacao: camadasSA.uc.length, embargos: camadasSA.em.length } } : null
 }
 fs.mkdirSync(path.dirname(saida), { recursive: true })
 fs.writeFileSync(saida, zlib.gzipSync(Buffer.from([JSON.stringify(cab), ...linhas].join('\n')), { level: 9 }))

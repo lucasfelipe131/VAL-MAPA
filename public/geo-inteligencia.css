@@ -1,4 +1,4 @@
-/* VAL Mapa — inteligência geo (CAR/SIGEF). Estilos próprios do módulo, sobre os tokens de styles.css. */
+/* VAL Geomap — inteligência geo (CAR/SIGEF). Estilos próprios do módulo, sobre os tokens de styles.css. */
 .geo-block{display:flex;flex-direction:column;gap:10px}
 .geo-abas{display:flex;border:1px solid var(--val-line);border-radius:10px;overflow:hidden}
 .geo-abas button{flex:1;border:0;background:#fff;padding:7px 8px;font:inherit;font-size:13px;font-weight:700;color:var(--val-muted);cursor:pointer}
@@ -30,6 +30,14 @@
 .geo-sug .geo-item-acoes,.geo-produtores .geo-item-acoes{flex-wrap:wrap}
 .geo-lista.geo-produtores{max-height:420px}
 .geo-perto summary{cursor:pointer;font-size:13px;color:var(--val-emerald-dark);margin:4px 0}
+/* triagem socioambiental e documentos */
+.badge.risco-critico{background:rgba(217,45,32,.12);color:#b42318}
+.geo-motivos{list-style:none;margin:4px 0 8px;padding:0;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.geo-motivos small{color:var(--val-muted)}
+.geo-docs{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.geo-docs a{color:var(--val-text);text-decoration:underline;text-decoration-color:var(--val-line)}
+.geo-doc-form{display:flex;flex-direction:column;gap:6px;border:1px dashed var(--val-line);border-radius:10px;padding:8px}
+.geo-doc-form input[type=file]{font:inherit;font-size:12.5px;max-width:100%}
 .geo-pin-wrap{background:none;border:0}
 .geo-pin{position:relative;display:block;width:22px;height:22px;border-radius:50% 50% 50% 0;background:var(--c,#2d8cff);transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 3px 8px rgba(7,27,25,.35)}
 .geo-pin::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}

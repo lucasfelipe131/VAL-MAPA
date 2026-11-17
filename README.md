@@ -1,4 +1,4 @@
-# VAL Mapa
+# VAL Geomap
 
 Mapeamento geográfico de produtores com viés de decisão comercial, levantamento de dados para apresentações e gráficos de acompanhamento. Derivado da base da **VAL Grãos (SOG)**: reaproveita a marca oficial da VAL (ativo original em `public/brand`) e a regra de priorização explicável (`sog-rules-v1` → `mapa-rules-v1`), em um ambiente simples e independente.
 
@@ -23,14 +23,19 @@ Módulo independente (`server/geo-inteligencia.js` + `public/geo-inteligencia.js
 - **Potencial por área** calibrado pelo IBGE. Lavoura estimada = área consolidada do CAR × (lavoura de verão do município ÷ áreas-base dos imóveis do CAR). Potencial = lavoura × soja, milho e trigo na proporção plantada no município (PAM 2021–2025: ano bom e média com secas). Parcela SIGEF dentro de um CAR não soma duas vezes e, sozinha, conta a parte dela.
 - **Camada de imóveis** da janela do mapa (a partir do zoom 11): laranja sem produtor, azul vinculado, tracejado para parcela SIGEF dentro de um CAR.
 - No detalhe do produtor, a seção **Áreas no CAR/SIGEF** mostra as áreas vinculadas e o potencial delas, com "Usar no cadastro" para gravar área e volume.
+- **Análise socioambiental** (triagem para compra de grãos): cada imóvel é cruzado com desmatamento e supressão de vegetação nativa do INPE (PRODES Pampa e Mata Atlântica, desde 2009), terras indígenas, unidades de conservação e embargos do IBAMA e do ICMBio. Resultado: **crítico** (embargo ativo, terra indígena ou UC de proteção integral acima de 1 ha, supressão depois de 31/12/2020, a data de corte do EUDR), **atenção** (supressão entre 2009 e 2020, UC de uso sustentável, embargo já desembargado, CAR suspenso) ou **sem alerta**, sempre com o motivo, a área e a fonte. No mapa, imóvel crítico tem contorno vermelho. É triagem com dados públicos: não substitui a análise documental.
+- **Porte** pela Lei 8.629/93, somando os módulos fiscais das áreas: minifúndio, pequeno (perfil Pronaf), médio (perfil Pronamp) ou grande. O enquadramento no crédito também depende da renda bruta.
+- **Relatórios** para imprimir ou salvar em PDF (`/relatorio.html`): o **do produtor** (no cadastro dele) traz mapa das áreas, matrículas e cartório, situação do CAR, lavoura e potencial por cultura, porte, análise socioambiental, cadastro comercial com prioridade, histórico e documentos. O **do município** (no painel do mapa) traz potencial e mercado (IBGE e custeio do SICOR), porte dos imóveis, cobertura da carteira do VAL, os maiores imóveis sem produtor e os alertas socioambientais.
+- **Documentos** no cadastro do produtor: matrícula, KML do GeoMart, laudos, contratos (PDF, KML/KMZ, imagens, Office, CSV, TXT, ZIP, até 10 MB). Ficam na tabela `mapa_documents` (arquivo em `bytea`), saem sempre como download e são apagados junto com o produtor ou no "APAGAR TUDO".
 
-Rotas (com sessão): `GET /api/geo/status`, `/api/geo/municipios`, `/api/geo/imoveis?bbox=o,s,l,n`, `/api/geo/imoveis/:id`, `/api/geo/nome?q=&municipio=[&estrito=1]`, `/api/geo/matricula?numero=&municipio=`, `/api/geo/ponto?lat=&lng=[&raio=km]`, `/api/geo/sugestoes[?producerId=]`, `GET|POST /api/geo/vinculos`, `DELETE /api/geo/vinculos/:id`.
+Rotas (com sessão): `GET /api/geo/status`, `/api/geo/municipios`, `/api/geo/imoveis?bbox=o,s,l,n`, `/api/geo/imoveis/:id`, `/api/geo/nome?q=&municipio=[&estrito=1]`, `/api/geo/matricula?numero=&municipio=`, `/api/geo/ponto?lat=&lng=[&raio=km]`, `/api/geo/sugestoes[?producerId=]`, `/api/geo/relatorio/produtor?producerId=`, `/api/geo/relatorio/municipio?municipio=`, `GET|POST /api/geo/vinculos`, `DELETE /api/geo/vinculos/:id`, `GET /api/geo/documentos?producerId=`, `POST /api/geo/documentos?producerId=&nome=&categoria=&descricao=` (corpo = arquivo), `GET|DELETE /api/geo/documentos/:id`.
 
 Base: `data/geo/imoveis.ndjson.gz` (25 MB), com os 77 municípios da região de Ijuí (IBGE, região intermediária: Missões, Ijuí, Santa Rosa, Três de Maio e Três Passos), 123.118 imóveis do CAR e 16.099 parcelas SIGEF. Ela é carregada na primeira chamada a `/api/geo` (cerca de 2 s e 550 MB de memória). Para atualizar ou trocar de região, gere o recorte com `ferramentas/recortar-imoveis.js --municipios lista.json` (projeto "mapa slg cvale") e rode `node scripts/geo-build.mjs --imoveis <recorte.js> --mercado <mercado.json> --regiao "nome"`. Fontes:
 - CAR: GeoServer público do SICAR (`sicar:sicar_imoveis_rs`).
 - Área consolidada: base de downloads do SICAR.
 - SIGEF: Geoportal do INCRA (`geonode:sigef_geo`), com matrícula, cartório (CNS) e nome da área.
 - Mercado: IBGE PAM (tabela 1612) e Banco Central SICOR.
+- Socioambiental (`node scripts/geo-camadas.mjs --base data/geo/imoveis.ndjson.gz`, depois `geo-build.mjs ... --camadas camadas.json.gz`): INPE TerraBrasilis (PRODES, terras indígenas e unidades de conservação dos biomas), ICMBio (embargos) e IBAMA dados abertos (termos de embargo). Do embargo ficam só número, data, município, área, situação e geometria; nome e CPF/CNPJ não são gravados.
 
 O CAR público não traz o nome do dono nem a matrícula. Esses dados vêm das parcelas SIGEF que caem dentro de cada CAR (9.245 imóveis da região). Um imóvel só no CAR, sem SIGEF, não aparece na busca por nome.
 

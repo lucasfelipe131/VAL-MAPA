@@ -1,5 +1,5 @@
 {
- "note": "Dados fictícios apenas para demonstração do VAL Mapa. Nenhum produtor real.",
+ "note": "Dados fictícios apenas para demonstração do VAL Geomap. Nenhum produtor real.",
  "producers": [
   {"key":"p1","name":"Fazenda Santa Luzia (exemplo)","municipality":"Santo Ângelo","uf":"RS","lat":-28.2992,"lng":-54.2632,"areaHa":850,"cultures":"soja, trigo","storageCapacityT":1800,"estimatedVolumeT":2700,"relationship":"active","consultant":"Ana","lastContactAt":"2026-10-20"},
   {"key":"p2","name":"Sítio Boa Esperança (exemplo)","municipality":"Cruz Alta","uf":"RS","lat":-28.6387,"lng":-53.6063,"areaHa":320,"cultures":"soja, milho","estimatedVolumeT":1000,"relationship":"contact","consultant":"Ana","lastContactAt":"2026-09-02"},

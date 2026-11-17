@@ -1,4 +1,4 @@
-// Motor de decisão do VAL Mapa — mapa-rules-v1.
+// Motor de decisão do VAL Geomap — mapa-rules-v1.
 // Derivado do sog-rules-v1 da VAL Grãos: score 0–100 explicável, com motivos,
 // alertas e próxima ação. Nenhuma ação comercial é executada automaticamente.
 

@@ -1,4 +1,4 @@
-// VAL Mapa — motor geo: imóveis rurais (CAR + SIGEF), busca por matrícula e por nome,
+// VAL Geomap — motor geo: imóveis rurais (CAR + SIGEF), busca por matrícula e por nome,
 // potencial por imóvel calibrado pelo IBGE e vínculo de áreas a produtores.
 //
 // Módulo independente: não altera produtores, intenções, interações nem o motor mapa-rules-v1.
@@ -6,6 +6,7 @@
 // por scripts/geo-build.mjs e só é carregada na primeira chamada a /api/geo (não atrasa o /live).
 import fs from 'node:fs'
 import zlib from 'node:zlib'
+import { classificar, piorNivel, porte, modulosPorMunicipio, NIVEIS } from './geo-socioambiental.js'
 
 // ---------------------------------------------------------------------------------------------
 // Funções puras (testadas em test/geo-inteligencia.test.js)
@@ -83,6 +84,22 @@ export function compararNome(consulta, nome) {
   return { s, casou, aproximado: casou.some(v => v > 0 && v < 1) }
 }
 export const pontuarNome = (consulta, nome) => compararNome(consulta, nome).s
+
+// Documentos: lista fechada de tipos, até 10 MB, nome sem caminho nem caracteres de controle
+export const MAX_DOC = 10 * 1024 * 1024
+export const TIPOS_DOC = { pdf: 'application/pdf', kml: 'application/vnd.google-earth.kml+xml', kmz: 'application/vnd.google-earth.kmz', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv', txt: 'text/plain', zip: 'application/zip' }
+export const CATEGORIAS_DOC = ['matricula', 'car', 'kml', 'laudo', 'contrato', 'outro']
+export const nomeArquivo = s => (String(s || '').split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f"<>|:*?]/g, '').trim().slice(0, 150) || 'documento')
+export function lerBinario(request, max) {
+  return new Promise((resolve, reject) => {
+    const partes = []; let total = 0, parou = false
+    request.on('data', c => { if (parou) return; total += c.length; if (total > max) { parou = true; reject(Object.assign(new Error(`Arquivo maior que ${Math.round(max / 1048576)} MB.`), { statusCode: 413 })); request.resume(); return } partes.push(c) })
+    request.on('end', () => { if (!parou) resolve(Buffer.concat(partes)) })
+    request.on('error', reject)
+  })
+}
 const ORDEM_REL = { nome: 0, parecido: 1, parcial: 2, sobrenome: 3 }
 const SOBRENOME_RARO = 40   // registros na base com a palavra; acima disso um sobrenome sozinho não identifica
 
@@ -172,6 +189,7 @@ export function createGeoIntel({ dataFile, store, domainError }) {
       for (const m of r.mats) { if (!porMat.has(m)) porMat.set(m, []); porMat.get(m).push(r) }
       r.tok = tokensNome(r.nome)
       for (const w of new Set(r.tok)) freq.set(w, (freq.get(w) || 0) + 1)   // em quantos registros cada palavra aparece
+      if (r.sa || /suspens/i.test(r.st || '')) r.risco = classificar(r.sa, r.st)   // triagem socioambiental (só quem tem algo)
       const [w, s, e, n] = r.b
       for (let x = Math.floor(w / CELULA); x <= Math.floor(e / CELULA); x++)
         for (let y = Math.floor(s / CELULA); y <= Math.floor(n / CELULA); y++) {
@@ -180,7 +198,8 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     }
     // parcelas de cada CAR (para expandir vínculos e mostrar)
     for (const r of imoveis) if (r.lk && porId.has(r.lk)) (porId.get(r.lk).parcelas ||= []).push(r.id)
-    base = { cab, mercado, mercadoPorCodigo, imoveis, porId, porMat, grade, freq, geom, carregadoEm: new Date().toISOString(), ms: Date.now() - t0 }
+    const moduloHa = modulosPorMunicipio(imoveis)   // tamanho do módulo fiscal (ha) em cada município
+    base = { cab, mercado, mercadoPorCodigo, imoveis, porId, porMat, grade, freq, geom, moduloHa, carregadoEm: new Date().toISOString(), ms: Date.now() - t0 }
     console.log(`Motor geo: ${imoveis.length} imóveis carregados em ${base.ms} ms`)
     return base
   }
@@ -201,9 +220,12 @@ export function createGeoIntel({ dataFile, store, domainError }) {
       potencialT: { anoBom: arred(r.pot.bom), media: arred(r.pot.med), soja: arred(r.pot.soja), milho: arred(r.pot.milho), trigo: arred(r.pot.trigo) },
       car: r.car || (car ? car.car : ''), parcela: r.parcela || '', codigoIncra: r.incra || '', situacao: r.st || '', modulosFiscais: r.mf || null, tipo: r.tp || '',
       dentroDoCar: r.dup ? r.lk : '', parcelas: r.parcelas || [], ponto: r.c, bbox: r.b,
-      produtores: vinc ? (vinc.get(r.id) || []) : []
+      produtores: vinc ? (vinc.get(r.id) || []) : [],
+      socioambiental: r.risco || null, moduloFiscalHa: b.moduloHa[r.mun] || null, porte: porte(modulosDe(r))
     }
   }
+  // módulos fiscais do imóvel: o do CAR; para parcela SIGEF, a área ÷ módulo do município
+  const modulosDe = r => (r.mf > 0 ? r.mf : base.moduloHa[r.mun] ? (r.a || 0) / base.moduloHa[r.mun] : 0)
   const feature = (r, vinc) => `{"type":"Feature","id":${JSON.stringify(r.id)},"properties":${JSON.stringify(resumo(r, vinc))},"geometry":${base.geom.get(r.id)}}`
 
   async function vinculos() { return store.all('geo_links') }
@@ -322,7 +344,12 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     }
     for (const k of Object.keys(soma)) soma[k] = k.endsWith('Ha') ? Math.round(soma[k] * 100) / 100 : arred(soma[k])
     const vinc = await mapaVinculos()
-    return { producerId, vinculos: links.map(l => ({ ...l, imovel: base.porId.has(l.imovelId) ? resumo(base.porId.get(l.imovelId), vinc) : null })), imoveisContados: ids.length, potencial: soma }
+    // porte pela soma dos módulos fiscais das áreas; triagem socioambiental pelo pior imóvel
+    const modulos = ids.reduce((s, id) => s + modulosDe(base.porId.get(id)), 0)
+    const motivos = ids.flatMap(id => { const r = base.porId.get(id); return (r.risco?.motivos || []).map(m => ({ ...m, imovelId: id, imovel: r.nome || r.car || r.parcela || id })) })
+      .sort((a, b) => NIVEIS[b.nivel] - NIVEIS[a.nivel])
+    const socioambiental = { nivel: piorNivel(ids.map(id => base.porId.get(id).risco?.nivel || 'ok')), motivos, imoveisAnalisados: ids.length, camadas: base.cab.camadas || null }
+    return { producerId, vinculos: links.map(l => ({ ...l, imovel: base.porId.has(l.imovelId) ? resumo(base.porId.get(l.imovelId), vinc) : null })), imoveisContados: ids.length, potencial: soma, porte: porte(modulos), socioambiental }
   }
 
   // --- rotas /api/geo/... (todas exigem sessão, como o resto da API) -------------------------
@@ -330,7 +357,7 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     const method = request.method, rota = segments[2] || '', id = segments[3] ? decodeURIComponent(segments[3]) : ''
     if (rota === 'status' && method === 'GET') {
       const b = carregar()
-      return json(response, 200, { carregado: true, ms: b.ms, geradoEm: b.cab.geradoEm, regiao: b.cab.regiao, fontes: b.cab.fontes, contagem: b.cab.contagem, municipios: b.cab.municipios })
+      return json(response, 200, { carregado: true, ms: b.ms, geradoEm: b.cab.geradoEm, regiao: b.cab.regiao, fontes: b.cab.fontes, contagem: b.cab.contagem, municipios: b.cab.municipios, camadas: b.cab.camadas || null })
     }
     if (rota === 'municipios' && method === 'GET') {
       const b = carregar()
@@ -398,6 +425,87 @@ export function createGeoIntel({ dataFile, store, domainError }) {
           temPonto: s.temPonto, melhor: item(s.melhor, vinc), nNome: s.nome.length, nNomeForte: s.nome.filter(x => x.relacao === 'nome' || x.relacao === 'parecido').length, nNoPonto: s.dentro.length })
       }
       return json(response, 200, { itens })
+    }
+    // --- relatórios ---------------------------------------------------------------------------
+    if (rota === 'relatorio' && id === 'produtor' && method === 'GET') {
+      const producerId = String(url.searchParams.get('producerId') || '')
+      const p = await store.get('producers', producerId); if (!p) throw domainError('Produtor não encontrado.', 404)
+      const b = carregar()
+      const [pot, interacoes, intencoes, documentos] = await Promise.all([
+        potencialProdutor(producerId), store.all('interactions'), store.all('intents'), store.files ? store.files.list(producerId) : []
+      ])
+      const cod = codigoDe(b, p.municipality), nomeMun = b.cab.municipios[cod] || p.municipality || ''
+      const porData = (x, y) => String(y.occurredAt || y.createdAt || '').localeCompare(String(x.occurredAt || x.createdAt || ''))
+      return json(response, 200, {
+        geradoEm: new Date().toISOString(), base: { regiao: b.cab.regiao, geradoEm: b.cab.geradoEm, fontes: b.cab.fontes, camadas: b.cab.camadas || null },
+        produtor: p, ...pot,
+        municipio: { nome: nomeMun, codigoIbge: cod && cod !== '__nenhum__' ? cod : '', mercado: b.mercado[nomeMun] || null, moduloFiscalHa: b.moduloHa[cod] || null },
+        interacoes: interacoes.filter(x => x.producerId === producerId).sort(porData),
+        intencoes: intencoes.filter(x => x.producerId === producerId).sort(porData),
+        documentos
+      })
+    }
+    if (rota === 'relatorio' && id === 'municipio' && method === 'GET') {
+      const b = carregar(), cod = codigoDe(b, String(url.searchParams.get('municipio') || ''))
+      const nome = b.cab.municipios[cod]; if (!nome) throw domainError('Município fora da base de imóveis.', 404)
+      const [links, vinc, produtores] = [await vinculos(), await mapaVinculos(), await store.all('producers')]
+      const doMun = b.imoveis.filter(r => r.mun === cod), contam = doMun.filter(r => !r.dup)
+      const vinculados = new Set(contaveis(links.map(l => l.imovelId)).filter(x => b.porId.get(x).mun === cod))
+      const soma = (lista, f) => lista.reduce((s, r) => s + (f(r) || 0), 0)
+      const lavouraHa = soma(contam, r => r.lav), potBom = soma(contam, r => r.pot.bom), potMed = soma(contam, r => r.pot.med)
+      const lavVinc = soma([...vinculados].map(x => b.porId.get(x)), r => r.lav), potVinc = soma([...vinculados].map(x => b.porId.get(x)), r => r.pot.bom)
+      // porte dos imóveis do CAR (Lei 8.629/93)
+      const portes = {}
+      for (const r of doMun) if (r.f === 'CAR') { const c = porte(modulosDe(r))?.classe || 'sem'; portes[c] ||= { imoveis: 0, areaHa: 0, lavouraHa: 0 }; portes[c].imoveis++; portes[c].areaHa += r.a || 0; portes[c].lavouraHa += r.lav || 0 }
+      for (const v of Object.values(portes)) { v.areaHa = Math.round(v.areaHa); v.lavouraHa = Math.round(v.lavouraHa) }
+      // maiores imóveis sem produtor do VAL: onde está o potencial ainda não atendido
+      const oportunidades = contam.filter(r => r.f === 'CAR' && !vinc.has(r.id)).sort((x, y) => y.lav - x.lav).slice(0, 25).map(r => resumo(r, vinc))
+      const comAlerta = contam.filter(r => r.risco && r.risco.nivel !== 'ok')
+      const alertas = comAlerta.sort((x, y) => NIVEIS[y.risco.nivel] - NIVEIS[x.risco.nivel] || y.a - x.a).slice(0, 40).map(r => resumo(r, vinc))
+      const idsProdutoresComArea = new Set(links.filter(l => vinculados.has(l.imovelId) || b.porId.get(l.imovelId)?.mun === cod).map(l => l.producerId))
+      const carteira = produtores.filter(p => slugNome(p.municipality) === slugNome(nome) || idsProdutoresComArea.has(p.id))
+        .map(p => ({ id: p.id, nome: p.name, municipio: p.municipality, relacionamento: p.relationship || '', consultor: p.consultant || '', areaHa: p.areaHa ?? null, volume: p.estimatedVolumeT ?? null, unidade: p.volumeUnit || 't', comArea: idsProdutoresComArea.has(p.id) }))
+        .sort((x, y) => (y.areaHa || 0) - (x.areaHa || 0))
+      return json(response, 200, {
+        geradoEm: new Date().toISOString(), base: { regiao: b.cab.regiao, geradoEm: b.cab.geradoEm, fontes: b.cab.fontes, camadas: b.cab.camadas || null },
+        municipio: { nome, codigoIbge: cod, mercado: b.mercado[nome] || null, moduloFiscalHa: b.moduloHa[cod] || null },
+        imoveis: { car: doMun.filter(r => r.f === 'CAR').length, sigef: doMun.filter(r => r.f === 'SIGEF').length, carComNome: doMun.filter(r => r.f === 'CAR' && r.nome).length,
+          areaCarHa: Math.round(soma(doMun.filter(r => r.f === 'CAR'), r => r.a)), lavouraHa: Math.round(lavouraHa), potencialAnoBomT: arred(potBom), potencialMediaT: arred(potMed) },
+        cobertura: { imoveisVinculados: vinculados.size, lavouraHa: Math.round(lavVinc), potencialAnoBomT: arred(potVinc), percentual: potBom > 0 ? Math.round(potVinc / potBom * 1000) / 10 : 0 },
+        portes, carteira, oportunidades,
+        socioambiental: { critico: comAlerta.filter(r => r.risco.nivel === 'critico').length, atencao: comAlerta.filter(r => r.risco.nivel === 'atencao').length, imoveis: alertas }
+      })
+    }
+
+    // --- documentos do produtor (matrícula, KML, laudos) ---------------------------------------
+    if (rota === 'documentos') {
+      if (!store.files) throw domainError('Armazenamento de documentos indisponível.', 501)
+      if (method === 'GET' && !id) {
+        const producerId = String(url.searchParams.get('producerId') || ''); if (!producerId) throw domainError('Informe o produtor.')
+        return json(response, 200, { itens: await store.files.list(producerId) })
+      }
+      if (method === 'POST' && !id) {
+        const producerId = String(url.searchParams.get('producerId') || '')
+        if (!producerId || !await store.get('producers', producerId)) throw domainError('Produtor não encontrado.', 404)
+        const nome = nomeArquivo(url.searchParams.get('nome')), ext = (nome.match(/\.([a-z0-9]{1,5})$/i) || [])[1]?.toLowerCase() || ''
+        if (!TIPOS_DOC[ext]) throw domainError(`Tipo de arquivo não aceito (.${ext || '?'}). Aceitos: ${Object.keys(TIPOS_DOC).join(', ')}.`, 415)
+        const conteudo = await lerBinario(request, MAX_DOC)
+        if (!conteudo.length) throw domainError('Arquivo vazio.')
+        const categoria = CATEGORIAS_DOC.includes(url.searchParams.get('categoria')) ? url.searchParams.get('categoria') : 'outro'
+        const descricao = String(url.searchParams.get('descricao') || '').slice(0, 200)
+        return json(response, 201, await store.files.put({ producerId, nome, ext, mime: TIPOS_DOC[ext], categoria, descricao }, conteudo))
+      }
+      if (method === 'GET' && id) {
+        const d = await store.files.get(id); if (!d) throw domainError('Documento não encontrado.', 404)
+        // sempre download (nunca abre no próprio site), com o tipo da lista fechada
+        response.writeHead(200, { 'Content-Type': TIPOS_DOC[d.ext] || 'application/octet-stream', 'Content-Length': d.content.length, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(d.nome)}`,
+          'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, no-store' })
+        return response.end(d.content)
+      }
+      if (method === 'DELETE' && id) {
+        if (!await store.files.remove(id)) throw domainError('Documento não encontrado.', 404)
+        return json(response, 200, { removed: true })
+      }
     }
     if (rota === 'vinculos') {
       if (method === 'GET' && !id) {
