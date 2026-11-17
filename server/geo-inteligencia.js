@@ -419,6 +419,26 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
     return { producerId, vinculos: links.map(l => ({ ...l, imovel: base.porId.has(l.imovelId) ? resumo(base.porId.get(l.imovelId), vinc) : null })), imoveisContados: ids.length, potencial: soma, porte: porte(modulos), socioambiental }
   }
 
+  // Panorama do estado: por município, contagens, área do CAR, lavoura estimada, alertas e potencial do IBGE.
+  // Uma passada pela base, guardada junto com ela (os vínculos entram por requisição, porque mudam).
+  function panorama() {
+    const b = carregar()
+    if (b.panorama) return b.panorama
+    const m = new Map(Object.entries(b.cab.municipios).map(([cod, nome]) => [cod, { codigoIbge: cod, municipio: nome, car: 0, sigef: 0, areaCarHa: 0, lavouraHa: 0, criticos: 0, atencao: 0 }]))
+    for (const r of b.imoveis) {
+      const x = m.get(r.mun); if (!x) continue
+      if (r.f !== 'CAR') { x.sigef++; continue }
+      x.car++; x.areaCarHa += r.a || 0; x.lavouraHa += r.lav || 0
+      if (r.risco?.nivel === 'critico') x.criticos++
+      else if (r.risco?.nivel === 'atencao') x.atencao++
+    }
+    for (const x of m.values()) {
+      const mm = b.mercado[x.municipio]
+      Object.assign(x, { areaCarHa: Math.round(x.areaCarHa), lavouraHa: Math.round(x.lavouraHa), lavouraVeraoHa: mm ? Math.round(mm.verao) : 0, potencialAnoBomT: mm ? arred(mm.potBom) : 0, potencialMediaT: mm ? arred(mm.potMed) : 0, moduloFiscalHa: b.moduloHa[x.codigoIbge] || null })
+    }
+    return (b.panorama = [...m.values()])
+  }
+
   // --- rotas /api/geo/... (todas exigem sessão, como o resto da API) -------------------------
   async function handle({ request, response, url, segments, json, readBody }) {
     const method = request.method, rota = segments[2] || '', id = segments[3] ? decodeURIComponent(segments[3]) : ''
@@ -427,11 +447,16 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
       const b = carregar()
       return json(response, 200, { carregado: true, ms: b.ms, geradoEm: b.cab.geradoEm, regiao: b.cab.regiao, fontes: b.cab.fontes, contagem: b.cab.contagem, municipios: b.cab.municipios, camadas: b.cab.camadas || null })
     }
+    if (rota === 'panorama' && method === 'GET') {
+      const b = carregar(), vinc = new Map()
+      for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r) { if (!vinc.has(r.mun)) vinc.set(r.mun, new Set()); vinc.get(r.mun).add(r.id) } }
+      return json(response, 200, { regiao: b.cab.regiao, itens: panorama().map(x => ({ ...x, imoveisVinculados: vinc.get(x.codigoIbge)?.size || 0 })) })
+    }
     if (rota === 'municipios' && method === 'GET') {
-      const b = carregar()
+      const b = carregar(), pan = new Map(panorama().map(x => [x.codigoIbge, x]))
       const linhas = Object.entries(b.cab.municipios).map(([cod, nome]) => {
-        const m = b.mercado[nome], doMun = b.imoveis.filter(r => r.mun === cod)
-        return { codigoIbge: cod, municipio: nome, imoveisCar: doMun.filter(r => r.f === 'CAR').length, parcelasSigef: doMun.filter(r => r.f === 'SIGEF').length,
+        const m = b.mercado[nome], doMun = pan.get(cod)
+        return { codigoIbge: cod, municipio: nome, imoveisCar: doMun.car, parcelasSigef: doMun.sigef,
           lavouraVeraoHa: m?.verao || 0, graoTHaAnoBom: m ? Math.round(m.thaBom * 100) / 100 : 0, graoTHaMedia: m ? Math.round(m.thaMed * 100) / 100 : 0,
           producaoAnoBomT: m ? arred(m.potBom) : 0, producaoMediaT: m ? arred(m.potMed) : 0, mercado: m }
       })
