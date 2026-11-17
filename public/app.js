@@ -115,7 +115,8 @@ function ensureMap(){
  const baseLayers={'Mapa':streets,'Satélite':imagery,'Satélite com nomes':hybrid}
  let saved='Mapa';try{saved=localStorage.getItem('val-mapa-base')||'Mapa'}catch{}
  ;(baseLayers[saved]||streets).addTo(state.map)
- L.control.layers(baseLayers,{'Limites municipais':state.muniLayer,'Produtores':state.layer},{position:'topright',collapsed:false}).addTo(state.map)
+ state.baseLayers=baseLayers
+ state.layersControl=L.control.layers(baseLayers,{'Limites municipais':state.muniLayer,'Produtores':state.layer},{position:'topright',collapsed:false}).addTo(state.map)
  state.map.on('overlayadd',event=>{if(event.layer===state.muniLayer)renderMunicipalities()})
  state.map.on('baselayerchange',event=>{try{localStorage.setItem('val-mapa-base',event.name)}catch{}})
  state.map.on('click',event=>{if(state.plan.active){state.plan.center=event.latlng;renderPlan()}})
@@ -758,4 +759,4 @@ function render(){
 setView(state.view)
 init().catch(error=>toast(error.message,true))
 // Ponte para módulos opcionais (ex.: /geo-inteligencia.js). Só expõe referências; não muda nada nesta tela.
-window.valMapa={state,api,toast,reload,showDetail,setView,esc,fmt,labels}
+window.valMapa={state,api,toast,reload,showDetail,setView,esc,fmt,labels,renderMap,renderMunicipalities,openProducerForm,loadMesh}

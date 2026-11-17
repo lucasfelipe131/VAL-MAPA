@@ -1,6 +1,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {createHmac,timingSafeEqual,randomBytes} from 'node:crypto'
 import {createStore} from './server/store.js'
 import {geocodeMunicipality} from './server/geocode.js'
@@ -9,7 +10,7 @@ import {municipalityMesh} from './server/malhas.js'
 import {createGeoIntel} from './server/geo-inteligencia.js'
 import {normalizeProducer,normalizeIntent,normalizeMarketRef,normalizeInteraction,scoreProducers,summarize,distanceKm,domainError,tonnesToSacas,commodityLabels,relationshipLabels,intentStatusLabels,interactionKinds,ufs} from './server/rules.js'
 
-const root=path.dirname(new URL(import.meta.url).pathname)
+const root=path.dirname(fileURLToPath(import.meta.url))   // funciona no Linux (Railway) e no Windows
 const port=Number(process.env.PORT||8080)
 const accessPassword=String(process.env.MAPA_ACCESS_PASSWORD||'')
 const sessionSecret=String(process.env.MAPA_SESSION_SECRET||'')||(accessPassword?createHmac('sha256','val-mapa').update(accessPassword).digest('hex'):'')

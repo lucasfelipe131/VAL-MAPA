@@ -125,3 +125,21 @@ test('relatórios do produtor e do município: potencial, porte, socioambiental,
   assert.deepEqual(rm.carteira.map(x => [x.nome, x.comArea]), [['Ana', true]])
   await assert.rejects(chamar(geo, 'GET', '/api/geo/relatorio/municipio?municipio=Ijuí'), e => e.statusCode === 404)
 })
+
+test('panorama do estado: contagens, área, alertas, potencial do IBGE e vínculos por município', async () => {
+  const { file, store } = montar()
+  await store.migrate()
+  const p = await store.insert('producers', { name: 'Ana', municipality: 'São Luiz Gonzaga' })
+  await store.insert('geo_links', { producerId: p.id, imovelId: 'CAR:B' })
+  const geo = createGeoIntel({ dataFile: file, store, domainError })
+  const r = (await chamar(geo, 'GET', '/api/geo/panorama')).body
+  assert.equal(r.itens.length, 1)
+  const m = r.itens[0]
+  assert.equal(m.codigoIbge, '4318903'); assert.equal(m.municipio, 'São Luiz Gonzaga')
+  assert.equal(m.car, 2); assert.equal(m.sigef, 0); assert.equal(m.areaCarHa, 660)
+  assert.equal(m.criticos, 1)                                          // supressão em 2022 na Fazenda Grande
+  assert.ok(m.potencialAnoBomT > 0 && m.lavouraVeraoHa === 1000)
+  assert.equal(m.imoveisVinculados, 1)
+  const mun = (await chamar(geo, 'GET', '/api/geo/municipios')).body.itens[0]   // a rota antiga usa a mesma contagem
+  assert.equal(mun.imoveisCar, 2); assert.equal(mun.parcelasSigef, 0)
+})

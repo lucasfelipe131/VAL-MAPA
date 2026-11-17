@@ -31,6 +31,9 @@ const ICO = {
   escudo: svg('<path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3Z"/>')
 }
 const produtorNome = id => V.state.data?.producers.find(p => p.id === id)?.name || 'produtor'
+// folga nas bordas ao enquadrar: com o painel flutuante aberto (tela larga), a esquerda fica coberta
+const painelCobre = () => innerWidth > 900 && !!document.querySelector('#view-map.imersivo:not(.painel-fechado)')
+const folga = (b = 60) => ({ paddingTopLeft: L.point(painelCobre() ? 400 + b / 2 : b, b + 30), paddingBottomRight: L.point(b, b) })
 
 if (V) iniciar()
 
@@ -76,7 +79,7 @@ function injetarPainel() {
   const primeiro = painel.querySelector('.panel-block')
   primeiro ? primeiro.after(bloco) : painel.prepend(bloco)
 
-  bloco.querySelector('#geo-camada').onchange = e => { G.ativo = e.target.checked; carregarJanela() }
+  bloco.querySelector('#geo-camada').onchange = e => ligarCamada(e.target.checked)
   bloco.querySelectorAll('[data-geo-aba]').forEach(b => b.onclick = () => trocarAba(b.dataset.geoAba))
   bloco.querySelector('#geo-buscar').onclick = buscar
   bloco.querySelector('#geo-q').onkeydown = e => { if (e.key === 'Enter') buscar() }
@@ -121,7 +124,32 @@ function montarCamadas() {
   G.layer = L.geoJSON(null, { pane: 'geoImoveis', style: estilo, onEachFeature: aoCriarFeicao })
   G.res = L.geoJSON(null, { pane: 'geoImoveis', style: f => ({ ...estilo(f), weight: 2.5, fillOpacity: .28 }), onEachFeature: aoCriarFeicao }).addTo(map)
   G.pins = L.layerGroup().addTo(map)
+  // destaque do imóvel com a ficha aberta (some quando a ficha fecha)
+  G.destaque = L.geoJSON(null, { pane: 'geoImoveis', interactive: false, style: { color: '#c8f25e', weight: 4, fillColor: '#c8f25e', fillOpacity: .16, className: 'geo-destaque' } }).addTo(map)
+  map.on('popupclose', e => { if (e.popup === G.popup) G.destaque.clearLayers() })
   map.on('moveend', () => { clearTimeout(G.timer); G.timer = setTimeout(carregarJanela, 250) })
+}
+// Mostra um imóvel vindo de fora da camada (busca única, "O que tem aqui?"): contorno em destaque, voo até ele e ficha
+async function mostrarImovel(i, { latlng, outros = [], voar = true } = {}) {
+  const map = V.state.map; if (!map || !i) return
+  G.destaque.clearLayers()
+  const centro = latlng ? L.latLng(latlng) : L.latLng(i.ponto[1], i.ponto[0])
+  const abrir = () => { abrirFicha(i, centro, outros); V.api(`/api/geo/imoveis/${encodeURIComponent(i.id)}`).then(fc => { G.destaque.clearLayers(); G.destaque.addData({ ...fc, features: fc.features.filter(f => f.id === i.id) }) }).catch(() => {}) }
+  if (!voar) return abrir()
+  map.once('moveend', () => setTimeout(abrir, 60))
+  map.flyToBounds([[i.bbox[1], i.bbox[0]], [i.bbox[3], i.bbox[2]]], { ...folga(90), maxZoom: 16, duration: 1.1 })
+}
+function ligarCamada(on = true) {
+  const c = document.getElementById('geo-camada'); if (c) c.checked = on
+  G.ativo = on; G.ultimaJanela = ''; carregarJanela()
+  window.dispatchEvent(new CustomEvent('geo:camada', { detail: { ativo: on } }))
+}
+function buscarNoPainel(tipo, q, mun = '') {
+  trocarAba(tipo)
+  document.getElementById('geo-q').value = q
+  const sel = document.getElementById('geo-mun'); sel.value = [...sel.options].some(o => o.value === mun) ? mun : ''
+  window.dispatchEvent(new CustomEvent('geo:painel', { detail: { abrir: true, alvo: 'geo-block' } }))
+  return buscar()
 }
 function estilo(f) {
   const p = f.properties
@@ -134,11 +162,83 @@ function estilo(f) {
 function aoCriarFeicao(f, layer) {
   const p = f.properties
   layer.bindTooltip(`<b>${esc(rotulo(p))}</b><br>${esc(p.fonte)}${p.dentroDoCar ? ' (dentro de um CAR)' : ''} · ${esc(p.municipio)} · ${fmt(p.areaHa, 1)} ha${p.potencialT.anoBom ? ` · ~${fmt(p.potencialT.anoBom)} t/ano` : ''}${p.matricula ? `<br>mat. ${esc(p.matricula)}` : ''}${p.produtores?.length ? `<br>Vinculado a ${esc(p.produtores.map(produtorNome).join(', '))}` : ''}${p.porte ? `<br>${esc(p.porte.rotulo)} · ${fmt(p.porte.modulos, 1)} MF` : ''}${p.socioambiental && p.socioambiental.nivel !== 'ok' ? `<br><b style="color:${p.socioambiental.nivel === 'critico' ? '#b42318' : '#8a5a00'}">${p.socioambiental.nivel === 'critico' ? 'Risco crítico' : 'Atenção'}:</b> ${esc(p.socioambiental.motivos[0]?.texto || '')}` : ''}`, { sticky: true })
-  layer.on('click', () => {
-    if (!G.itens.some(i => i.id === p.id)) G.itens.push(p)
-    G.sel.has(p.id) ? G.sel.delete(p.id) : G.sel.add(p.id)
-    restilizar(); desenharResultado()
+  layer.on('click', e => {
+    if (V.state.plan?.active) return   // planejando rota: o clique vai para o mapa (centro da visita)
+    L.DomEvent.stopPropagation(e)
+    // Ctrl/Shift + clique: seleciona direto (vários de uma vez); clique simples: abre a ficha
+    if (e.originalEvent?.ctrlKey || e.originalEvent?.metaKey || e.originalEvent?.shiftKey) return alternarSelecao(p)
+    abrirFicha(p, e.latlng)
   })
+}
+function alternarSelecao(p) {
+  if (!G.itens.some(i => i.id === p.id)) G.itens.push(p)
+  G.sel.has(p.id) ? G.sel.delete(p.id) : G.sel.add(p.id)
+  restilizar(); desenharResultado()
+  document.getElementById('geo-limpar').hidden = false
+}
+
+// Ficha do imóvel: abre no clique (camada, pins, busca ou "O que tem aqui?"), com o essencial e as ações.
+// `outros` = demais imóveis no mesmo ponto (CAR e parcelas SIGEF dentro dele).
+function abrirFicha(p, latlng, outros = []) {
+  const map = V.state.map; if (!map) return
+  const el = document.createElement('div'); el.className = 'geo-ficha'
+  const desenhar = () => { el.innerHTML = htmlFicha(p, outros) }
+  desenhar()
+  el.addEventListener('click', async e => {
+    if (e.target.closest('[data-gf-sel]')) { alternarSelecao(p); desenhar(); return }
+    if (e.target.closest('[data-gf-zoom]')) { map.closePopup(); map.flyToBounds([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { ...folga(70), maxZoom: 16, duration: .9 }); return }
+    if (e.target.closest('[data-gf-rel]')) { window.open(`/relatorio.html?municipio=${encodeURIComponent(p.municipio)}`, '_blank', 'noopener'); return }
+    if (e.target.closest('[data-gf-vinc]')) {
+      const pid = el.querySelector('[data-gf-prod]')?.value
+      if (!pid) { V.toast('Escolha o produtor.', true); return }
+      if (!G.itens.some(i => i.id === p.id)) G.itens.push(p)
+      await vincular(pid, [p.id], 'ficha-do-mapa', '')
+      p.produtores = [...new Set([...(p.produtores || []), pid])]; desenhar(); return
+    }
+    if (e.target.closest('[data-gf-novo]')) {
+      if (!G.itens.some(i => i.id === p.id)) G.itens.push(p)
+      G.sel = new Set([p.id]); restilizar(); desenharResultado(); abrirNovoProdutor(p.nome ? titulo(p.nome) : '')
+      window.dispatchEvent(new CustomEvent('geo:painel', { detail: { abrir: true, alvo: 'geo-novo-form' } }))
+      map.closePopup(); return
+    }
+    const o = e.target.closest('[data-gf-outro]')
+    if (o) { const q = outros.find(x => x.id === o.dataset.gfOutro); if (q) abrirFicha(q, latlng, [p, ...outros.filter(x => x.id !== q.id)]) }
+  })
+  L.DomEvent.disableScrollPropagation(el)
+  G.popup = L.popup({ className: 'geo-ficha-pop', maxWidth: 340, minWidth: 290, autoPanPaddingTopLeft: L.point(painelCobre() ? 400 : 20, 80), autoPanPaddingBottomRight: L.point(painelCobre() && !document.getElementById('detail').hidden ? 430 : 30, 30) })
+    .setLatLng(latlng).setContent(el).openOn(map)
+}
+function htmlFicha(p, outros) {
+  const sa = p.socioambiental, nivel = sa?.nivel || 'ok', pot = p.potencialT || {}
+  const produtores = (V.state.data?.producers || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  const selecionado = G.sel.has(p.id)
+  return `
+    <div class="gf-topo"><span class="gf-fonte ${p.fonte === 'CAR' ? 'car' : 'sigef'}">${esc(p.fonte)}</span><span class="gf-mun">${esc(p.municipio)}</span>${seloRisco(nivel)}</div>
+    <b class="gf-nome">${esc(rotulo(p))}</b>
+    ${p.dentroDoCar ? '<span class="gf-sub">Parcela SIGEF dentro de um imóvel do CAR</span>' : p.situacao ? `<span class="gf-sub">CAR ${esc(p.situacao.toLowerCase())}${p.car ? ` · …${esc(p.car.slice(-8))}` : ''}</span>` : ''}
+    <div class="gf-kpis">
+      <div><span>Área</span><b>${fmt(p.areaHa, 1)} ha</b></div>
+      <div><span>Lavoura est.</span><b>${fmt(p.lavouraHa)} ha</b></div>
+      <div><span>Potencial</span><b>${pot.anoBom ? `~${fmt(pot.anoBom)} t` : '—'}</b></div>
+    </div>
+    ${pot.anoBom ? `<div class="gf-culturas">${[['Soja', pot.soja], ['Milho', pot.milho], ['Trigo', pot.trigo]].filter(([, v]) => v > 0).map(([n, v]) => `<span><i class="c-${n.toLowerCase()}"></i>${n} ${fmt(v)} t</span>`).join('')}</div>` : ''}
+    <ul class="gf-linhas">
+      ${p.matricula ? `<li>Matrícula <b>${esc(p.matricula)}</b>${p.cns ? ` · cartório ${esc(p.cns)}` : ''}</li>` : ''}
+      ${p.porte ? `<li>${esc(p.porte.rotulo)} · ${fmt(p.porte.modulos, 1)} módulos fiscais</li>` : ''}
+      ${sa?.motivos?.length ? sa.motivos.slice(0, 2).map(m => `<li class="gf-risco ${m.nivel}">${esc(m.texto)}</li>`).join('') : ''}
+      ${p.produtores?.length ? `<li class="gf-vinc">Vinculado a ${p.produtores.map(id => `<a href="#" data-detail="${esc(id)}">${esc(produtorNome(id))}</a>`).join(', ')}</li>` : ''}
+    </ul>
+    ${outros.length ? `<div class="gf-outros"><span>Também neste ponto</span>${outros.slice(0, 4).map(o => `<button type="button" data-gf-outro="${esc(o.id)}">${esc(o.fonte)} · ${esc(rotulo(o))} · ${fmt(o.areaHa)} ha</button>`).join('')}</div>` : ''}
+    <div class="gf-vincular">
+      <select data-gf-prod aria-label="Produtor do VAL"><option value="">Vincular a produtor…</option>${produtores.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.municipality)}</option>`).join('')}</select>
+      <button type="button" class="btn small primary" data-gf-vinc>Vincular</button>
+    </div>
+    <div class="gf-acoes">
+      <button type="button" class="btn small ${selecionado ? 'primary' : ''}" data-gf-sel title="Junta este imóvel a outros para vincular de uma vez (atalho: Ctrl + clique)">${selecionado ? '✓ Selecionado' : 'Selecionar'}</button>
+      <button type="button" class="btn small" data-gf-novo>Novo produtor</button>
+      <button type="button" class="btn small ghost" data-gf-zoom>Aproximar</button>
+      <button type="button" class="btn small ghost" data-gf-rel>${ICO.relatorio}Município</button>
+    </div>`
 }
 const restilizar = () => { G.layer?.setStyle(estilo); G.res?.setStyle(f => ({ ...estilo(f), weight: 2.5, fillOpacity: .28 })) }
 // Legenda da camada de imóveis, no canto do mapa, só com a camada ligada; mostra também o estado da janela
@@ -172,7 +272,7 @@ async function carregarJanela() {
   try {
     const fc = await V.api(`/api/geo/imoveis?bbox=${bbox}`)
     G.layer.clearLayers(); G.layer.addData(fc)
-    legenda(`${fmt(fc.features.length)} imóveis nesta área${fc.total > fc.features.length ? ` (de ${fmt(fc.total)})` : ''} · clique para selecionar`)
+    legenda(`${fmt(fc.features.length)} imóveis nesta área${fc.total > fc.features.length ? ` (de ${fmt(fc.total)})` : ''} · clique para ver a ficha`)
   } catch (e) { legenda(e.message) }
 }
 
@@ -190,7 +290,7 @@ async function buscar() {
     G.res.clearLayers(); if (r.geojson) G.res.addData(r.geojson)
     marcarPins(r.itens)
     desenharResultado()
-    if (r.itens.length) V.state.map.fitBounds(limites(r.itens), { padding: [40, 40], maxZoom: 14 })
+    if (r.itens.length) V.state.map.flyToBounds(limites(r.itens), { ...folga(40), maxZoom: 14, duration: 1.1 })
   } catch (e) { V.toast(e.message, true) } finally { btn.disabled = false; btn.querySelector('.lbl').textContent = 'Buscar áreas' }
 }
 const limites = itens => itens.reduce((b, i) => [[Math.min(b[0][0], i.bbox[1]), Math.min(b[0][1], i.bbox[0])], [Math.max(b[1][0], i.bbox[3]), Math.max(b[1][1], i.bbox[2])]], [[90, 180], [-90, -180]])
@@ -200,7 +300,7 @@ function marcarPins(itens) {
     const cor = i.relacao ? COR_REL[i.relacao] : i.motivo === 'ponto' || i.motivo === 'perto' ? COR.livre : COR.vinculado
     L.marker([i.ponto[1], i.ponto[0]], { icon: L.divIcon({ className: 'geo-pin-wrap', html: `<span class="geo-pin" style="--c:${cor}"></span>`, iconSize: [22, 30], iconAnchor: [11, 30] }) })
       .bindTooltip(`<b>${esc(rotulo(i))}</b><br>${esc(i.municipio)} · ${fmt(i.areaHa, 1)} ha`, { direction: 'top', offset: [0, -26] })
-      .on('click', () => { G.sel.has(i.id) ? G.sel.delete(i.id) : G.sel.add(i.id); restilizar(); desenharResultado() })
+      .on('click', e => { if (e.originalEvent?.ctrlKey || e.originalEvent?.metaKey || e.originalEvent?.shiftKey) return alternarSelecao(i); abrirFicha(i, e.latlng) })
       .addTo(G.pins)
   }
   document.getElementById('geo-limpar').hidden = !itens.length
@@ -251,7 +351,7 @@ async function cliqueResultado(e) {
   const abrir = e.target.closest('[data-geo-abrir]')
   if (abrir) { V.showDetail(abrir.dataset.geoAbrir); return }
   const ver = e.target.closest('[data-geo-ver]')
-  if (ver) { const i = G.itens.find(x => x.id === ver.dataset.geoVer); if (i) V.state.map.fitBounds([[i.bbox[1], i.bbox[0]], [i.bbox[3], i.bbox[2]]], { padding: [60, 60], maxZoom: 16 }); return }
+  if (ver) { const i = G.itens.find(x => x.id === ver.dataset.geoVer); if (i) mostrarImovel(i); return }
   if (e.target.closest('[data-geo-vincular]')) {
     const producerId = document.getElementById('geo-produtor').value
     if (!producerId) return V.toast('Escolha o produtor.', true)
@@ -271,14 +371,14 @@ async function vincular(producerId, ids, origem = G.ultimoTipo === 'nome' ? 'bus
   } catch (e) { V.toast(e.message, true) }
 }
 const titulo = s => String(s).toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).replace(/\s(De|Da|Do|Dos|Das|E)\s/g, m => m.toLowerCase())
-function abrirNovoProdutor() {
+function abrirNovoProdutor(nomeSugerido) {
   const sel = G.itens.filter(i => G.sel.has(i.id))
   const muns = sel.reduce((m, i) => m.set(i.municipio, (m.get(i.municipio) || 0) + (i.lavouraHa || i.areaHa || 0)), new Map())
   const mun = [...muns.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
   const rel = V.labels.relationships || {}
   const box = document.getElementById('geo-novo-form'); box.hidden = false
   box.innerHTML = `
-    <label class="field"><span>Nome do produtor</span><input id="geo-novo-nome" value="${esc(G.ultimoTipo === 'nome' ? titulo(G.ultimaBusca) : '')}"></label>
+    <label class="field"><span>Nome do produtor</span><input id="geo-novo-nome" value="${esc(nomeSugerido ?? (G.ultimoTipo === 'nome' ? titulo(G.ultimaBusca) : ''))}"></label>
     <div class="grid-2"><label class="field"><span>Município</span><input id="geo-novo-mun" value="${esc(mun)}"></label>
     <label class="field"><span>Relacionamento</span><select id="geo-novo-rel">${Object.entries(rel).map(([v, l]) => `<option value="${esc(v)}" ${v === 'prospect' ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
     <p class="hint">O cadastro nasce com o ponto na maior área, a lavoura estimada e o potencial em ano bom das áreas selecionadas. Dá para ajustar depois em Editar.</p>
@@ -374,9 +474,7 @@ async function secaoDetalhe(producerId) {
       if (des) { try { await V.api(`/api/geo/vinculos/${des.dataset.geoDesvincular}`, { method: 'DELETE' }); V.toast('Vínculo removido.'); G.ultimaJanela = ''; carregarJanela(); secaoDetalhe(producerId) } catch (er) { V.toast(er.message, true) } return }
       if (e.target.closest('[data-geo-mostrar]')) return mostrarVinculos(r.vinculos)
       if (e.target.closest('[data-geo-buscar-prod]')) {
-        trocarAba('nome'); document.getElementById('geo-q').value = p?.name || ''
-        const sel = document.getElementById('geo-mun'); sel.value = [...sel.options].some(o => o.value === p?.municipality) ? p.municipality : ''
-        document.getElementById('geo-block').scrollIntoView({ behavior: 'smooth', block: 'start' }); return buscar()
+        return buscarNoPainel('nome', p?.name || '', p?.municipality || '')
       }
       if (e.target.closest('[data-geo-usar]') && p) {
         const emUnidade = t => (p.volumeUnit === 'sc' ? Math.round(t / SC_T) : t)   // o servidor converte pela unidade do cadastro, como o formulário
@@ -489,5 +587,8 @@ async function mostrarVinculos(vinculos) {
   G.res.clearLayers()
   for (const i of itens) { try { G.res.addData(await V.api(`/api/geo/imoveis/${encodeURIComponent(i.id)}`)) } catch { /* imóvel fora da base atual */ } }
   marcarPins(itens)
-  V.state.map.fitBounds(limites(itens), { padding: [50, 50], maxZoom: 15 })
+  V.state.map.flyToBounds(limites(itens), { ...folga(50), maxZoom: 15, duration: 1 })
 }
+
+// API para os outros módulos da tela (geo-imersivo.js: busca única, panorama, menu do mapa)
+window.valGeo = { G, abrirFicha, mostrarImovel, ligarCamada, buscarNoPainel, alternarSelecao, carregarJanela, rotulo }
