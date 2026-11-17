@@ -94,7 +94,7 @@ const cab = {
     'Mercado: IBGE Produção Agrícola Municipal (tabela 1612, 2021–2025) e Banco Central SICOR (custeio)',
     cabecalhoFonte
   ].filter(Boolean),
-  municipios: MUNICIPIOS, mercado, contagem: { car: nCar, sigef: nSig, comAlertaSocioambiental: nSA },
+  municipios: MUNICIPIOS, mercado: Object.fromEntries(Object.entries(mercado).filter(([nome]) => Object.values(MUNICIPIOS).includes(nome))), contagem: { car: nCar, sigef: nSig, comAlertaSocioambiental: nSA },
   camadas: camadasSA ? { geradoEm: camadasSA.geradoEm, fontes: camadasSA.fontes, contagem: { desmatamento: camadasSA.desm.length, terrasIndigenas: camadasSA.ti.length, unidadesConservacao: camadasSA.uc.length, embargos: camadasSA.em.length } } : null
 }
 fs.mkdirSync(path.dirname(saida), { recursive: true })

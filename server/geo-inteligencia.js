@@ -5,7 +5,9 @@
 // Os vínculos ficam na coleção própria `geo_links`. A base (data/geo/imoveis.ndjson.gz) é gerada
 // por scripts/geo-build.mjs e só é carregada na primeira chamada a /api/geo (não atrasa o /live).
 import fs from 'node:fs'
+import path from 'node:path'
 import zlib from 'node:zlib'
+import { promisify } from 'node:util'
 import { classificar, piorNivel, porte, modulosPorMunicipio, NIVEIS } from './geo-socioambiental.js'
 
 // ---------------------------------------------------------------------------------------------
@@ -161,34 +163,95 @@ const arred = v => Math.round(v)
 // ---------------------------------------------------------------------------------------------
 // Motor
 // ---------------------------------------------------------------------------------------------
-export function createGeoIntel({ dataFile, store, domainError }) {
-  let base = null
-  const CELULA = 0.05   // grade de ~5 km para busca por janela do mapa
+// Base em um ou vários arquivos (um por região): dataDir com imoveis*.ndjson.gz, ou dataFile único.
+// No servidor a carga é assíncrona e em partes (o app segue respondendo); nos testes, síncrona. O mesmo código
+// roda nos dois modos porque as etapas são geradores que param de tempos em tempos (yield).
+const gunzipAsync = promisify(zlib.gunzip)
+const rodarSync = gen => { let r; while (!(r = gen.next()).done); return r.value }
+const pausa = () => new Promise(resolve => setImmediate(resolve))
+async function rodarAsync(gen) { let r; while (!(r = gen.next()).done) await pausa(); return r.value }
+// percorre a base descompactada: 1ª linha = cabeçalho; depois "props TAB geometria". A geometria fica como fatia
+// do próprio buffer (sem cópia e fora do heap do V8), convertida em texto só quando vai para o navegador.
+function* lerBuffer(buf, acc) {
+  let ini = 0, n = 0, primeira = true
+  while (ini < buf.length) {
+    let fim = buf.indexOf(10, ini); if (fim < 0) fim = buf.length
+    if (primeira) { acc.cabs.push(JSON.parse(buf.toString('utf8', ini, fim))); primeira = false }
+    else {
+      const tab = buf.indexOf(9, ini)
+      if (tab > ini && tab < fim) {
+        const r = JSON.parse(buf.toString('utf8', ini, tab))
+        acc.geom.set(r.id, buf.subarray(tab + 1, fim))
+        acc.imoveis.push(r)
+      }
+    }
+    ini = fim + 1
+    if (++n % 5000 === 0) yield
+  }
+}
+// cabeçalhos de várias regiões viram um só
+export function juntarCabecalhos(cabs) {
+  if (cabs.length === 1) return cabs[0]
+  const c = { v: 1, geradoEm: cabs.map(x => x.geradoEm || '').sort().pop(), regiao: '', fontes: [], municipios: {}, mercado: {}, contagem: {}, camadas: null, regioes: [] }
+  for (const x of cabs) {
+    Object.assign(c.municipios, x.municipios); Object.assign(c.mercado, x.mercado)
+    for (const [k, v] of Object.entries(x.contagem || {})) c.contagem[k] = (c.contagem[k] || 0) + v
+    for (const f of x.fontes || []) if (!/^Gerado por/.test(f) && !c.fontes.includes(f)) c.fontes.push(f)
+    c.camadas ||= x.camadas || null
+    c.regioes.push(x.regiao)
+  }
+  const n = Object.keys(c.municipios).length
+  c.regiao = Object.keys(c.municipios).every(k => k.startsWith('43')) ? `Rio Grande do Sul: ${n} municípios em ${cabs.length} regiões` : `${n} municípios em ${cabs.length} regiões`
+  return c
+}
 
-  function carregar() {
+export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer = false }) {
+  let base = null, carregando = null
+  const CELULA = 0.05   // grade de ~5 km para busca por janela do mapa
+  const arquivos = () => (dataDir
+    ? (fs.existsSync(dataDir) ? fs.readdirSync(dataDir).filter(n => /^imoveis.*\.ndjson\.gz$/.test(n)).sort().map(n => path.join(dataDir, n)) : [])
+    : (dataFile && fs.existsSync(dataFile) ? [dataFile] : []))
+  const semBase = () => domainError('Base geo não encontrada. Gere com scripts/geo-build.mjs.', 503)
+
+  function carregar() {   // síncrona: testes e scripts
     if (base) return base
-    if (!fs.existsSync(dataFile)) throw domainError('Base geo não encontrada. Gere com scripts/geo-build.mjs.', 503)
-    const t0 = Date.now()
-    const linhas = zlib.gunzipSync(fs.readFileSync(dataFile)).toString('utf8').split('\n')
-    const cab = JSON.parse(linhas[0])
+    const lista = arquivos(); if (!lista.length) throw semBase()
+    const t0 = Date.now(), acc = { cabs: [], imoveis: [], geom: new Map() }
+    for (const f of lista) rodarSync(lerBuffer(zlib.gunzipSync(fs.readFileSync(f)), acc))
+    return (base = rodarSync(montar(acc, t0)))
+  }
+  function carregarAsync() {   // servidor: em partes, sem travar as outras requisições
+    if (base) return Promise.resolve(base)
+    if (!carregando) {
+      carregando = (async () => {
+        const lista = arquivos(); if (!lista.length) throw semBase()
+        const t0 = Date.now(), acc = { cabs: [], imoveis: [], geom: new Map() }
+        for (const f of lista) await rodarAsync(lerBuffer(await gunzipAsync(await fs.promises.readFile(f)), acc))
+        const b = await rodarAsync(montar(acc, t0))
+        return (base ||= b)
+      })()
+      carregando.catch(() => { carregando = null })
+    }
+    return carregando
+  }
+  if (aquecer) setTimeout(() => carregarAsync().catch(e => console.error('Motor geo:', e.message)), 1500)
+
+  function* montar(acc, t0) {
+    const cab = juntarCabecalhos(acc.cabs), imoveis = acc.imoveis, geom = acc.geom
     const mercado = Object.fromEntries(Object.entries(cab.mercado || {}).map(([nome, c]) => [nome, mercadoMunicipio(c)]))
     const mercadoPorCodigo = Object.fromEntries(Object.entries(cab.municipios).map(([cod, nome]) => [cod, mercado[nome]]))
-    const imoveis = [], geom = new Map()
-    for (let i = 1; i < linhas.length; i++) {
-      const tab = linhas[i].indexOf('\t'); if (tab < 0) continue
-      const r = JSON.parse(linhas[i].slice(0, tab))
-      geom.set(r.id, linhas[i].slice(tab + 1))     // geometria fica como texto: memória menor, resposta sem re-serializar
-      imoveis.push(r)
-    }
     calibrar(imoveis, mercadoPorCodigo)
+    yield
     const porId = new Map(imoveis.map(r => [r.id, r]))
-    const porMat = new Map(), grade = new Map(), freq = new Map()
+    const porMat = new Map(), grade = new Map(), freq = new Map(), porToken = new Map()   // porToken: palavra → registros (índice da busca por nome)
+    let cont = 0
     for (const r of imoveis) {
+      if (++cont % 10000 === 0) yield
       r.municipio = cab.municipios[r.mun] || ''
       r.mats = normMats(r.mat)
       for (const m of r.mats) { if (!porMat.has(m)) porMat.set(m, []); porMat.get(m).push(r) }
       r.tok = tokensNome(r.nome)
-      for (const w of new Set(r.tok)) freq.set(w, (freq.get(w) || 0) + 1)   // em quantos registros cada palavra aparece
+      for (const w of new Set(r.tok)) { freq.set(w, (freq.get(w) || 0) + 1); let l = porToken.get(w); if (!l) porToken.set(w, (l = [])); l.push(r) }   // em quantos registros cada palavra aparece
       if (r.sa || /suspens/i.test(r.st || '')) r.risco = classificar(r.sa, r.st)   // triagem socioambiental (só quem tem algo)
       const [w, s, e, n] = r.b
       for (let x = Math.floor(w / CELULA); x <= Math.floor(e / CELULA); x++)
@@ -199,9 +262,9 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     // parcelas de cada CAR (para expandir vínculos e mostrar)
     for (const r of imoveis) if (r.lk && porId.has(r.lk)) (porId.get(r.lk).parcelas ||= []).push(r.id)
     const moduloHa = modulosPorMunicipio(imoveis)   // tamanho do módulo fiscal (ha) em cada município
-    base = { cab, mercado, mercadoPorCodigo, imoveis, porId, porMat, grade, freq, geom, moduloHa, carregadoEm: new Date().toISOString(), ms: Date.now() - t0 }
-    console.log(`Motor geo: ${imoveis.length} imóveis carregados em ${base.ms} ms`)
-    return base
+    const b = { cab, mercado, mercadoPorCodigo, imoveis, porId, porMat, grade, freq, porToken, geom, moduloHa, carregadoEm: new Date().toISOString(), ms: Date.now() - t0 }
+    console.log(`Motor geo: ${imoveis.length} imóveis de ${acc.cabs.length} arquivo(s) carregados em ${b.ms} ms`)
+    return b
   }
 
   const codigoDe = (b, municipio) => {
@@ -260,7 +323,11 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     if (!q.length) return { tokens: q, itens: [], municipio: cod }
     const ultimo = q[q.length - 1], ultimoRaro = (b.freq.get(ultimo) || 0) <= SOBRENOME_RARO
     const achados = []
-    for (const r of b.imoveis) {
+    // candidatos: só os registros com alguma palavra que casa com uma palavra buscada (mesma inicial, então dá para
+    // filtrar o vocabulário antes de comparar); evita percorrer a base inteira a cada busca
+    const candidatos = new Set()
+    for (const w of q) for (const [x, lista] of b.porToken) if (x[0] === w[0] && casarPalavra(w, x)) for (const r of lista) candidatos.add(r)
+    for (const r of candidatos) {
       if (estrito && cod && r.mun !== cod) continue
       if (!r.tok.length) continue
       const c = compararNome(q, r.tok)
@@ -355,6 +422,7 @@ export function createGeoIntel({ dataFile, store, domainError }) {
   // --- rotas /api/geo/... (todas exigem sessão, como o resto da API) -------------------------
   async function handle({ request, response, url, segments, json, readBody }) {
     const method = request.method, rota = segments[2] || '', id = segments[3] ? decodeURIComponent(segments[3]) : ''
+    await carregarAsync()   // primeira chamada espera a carga (em partes); as demais seguem direto
     if (rota === 'status' && method === 'GET') {
       const b = carregar()
       return json(response, 200, { carregado: true, ms: b.ms, geradoEm: b.cab.geradoEm, regiao: b.cab.regiao, fontes: b.cab.fontes, contagem: b.cab.contagem, municipios: b.cab.municipios, camadas: b.cab.camadas || null })
@@ -539,5 +607,5 @@ export function createGeoIntel({ dataFile, store, domainError }) {
     throw domainError('Rota não encontrada.', 404)
   }
 
-  return { handle, carregar, buscarMatricula, buscarNome, buscarPonto, sugestoes, naJanela, potencialProdutor }
+  return { handle, carregar, carregarAsync, buscarMatricula, buscarNome, buscarPonto, sugestoes, naJanela, potencialProdutor }
 }
