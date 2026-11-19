@@ -32,13 +32,29 @@ Módulo independente (`server/geo-inteligencia.js` + `public/geo-inteligencia.js
 
 - **Mapa em tela cheia** com o painel flutuante, que esconde e mostra pela aba na borda ou pela tecla **P**. No celular, o painel vira uma gaveta que sobe de baixo.
 - **Busca única** sobre o mapa (tecla **/** ou **Ctrl+K**): produtor do VAL, município, nome no registro do imóvel (CAR/SIGEF), matrícula ou coordenada. O mapa voa até o resultado e abre a ficha.
-- **Panorama do RS**: os 497 municípios pintados pelo potencial de grãos (IBGE), pela parcela de imóveis do CAR com alerta crítico ou pela carteira do VAL. Passar o mouse mostra os números; clicar voa até o município e abre a **ficha do município** (potencial, lavoura, imóveis, alertas, carteira, atalhos para ver os imóveis, buscar nomes ali e o relatório). De perto (zoom 11+) o panorama vira só contorno e a legenda recolhe.
+- **Panorama do RS**: os 497 municípios pintados pelo potencial de grãos (IBGE), pela parcela de imóveis do CAR com alerta crítico ou pela carteira do VAL. Passar o mouse mostra os números; clicar voa até o município e abre a **ficha do município** (abaixo). De perto (zoom 11+) o panorama vira só contorno e a legenda recolhe.
 - **Ficha do imóvel** ao clicar num imóvel: área, lavoura, potencial por cultura, matrícula, porte, motivos socioambientais e quem está vinculado, com **Vincular** direto, **Novo produtor**, **Aproximar** e o relatório do município. **Ctrl + clique** seleciona vários de uma vez para o painel.
 - **Camadas** num controle só, com miniaturas de mapa, satélite e híbrido (tecla **S**) e as chaves do panorama (**E**), dos imóveis rurais (**I**), dos produtores e dos limites.
 - **Clique direito** (ou toque longo) em qualquer ponto: o que tem aqui, ficha do município, planejar rota dali, cadastrar produtor com o ponto marcado, copiar coordenadas e abrir no Google Maps.
 - **Tour** de boas-vindas no primeiro acesso e o botão **?** no cabeçalho com os atalhos.
 
-Rotas (com sessão): `GET /api/geo/status`, `/api/geo/panorama`, `/api/geo/municipios`, `/api/geo/imoveis?bbox=o,s,l,n`, `/api/geo/imoveis/:id`, `/api/geo/nome?q=&municipio=[&estrito=1]`, `/api/geo/matricula?numero=&municipio=`, `/api/geo/ponto?lat=&lng=[&raio=km]`, `/api/geo/sugestoes[?producerId=]`, `/api/geo/relatorio/produtor?producerId=`, `/api/geo/relatorio/municipio?municipio=`, `GET|POST /api/geo/vinculos`, `DELETE /api/geo/vinculos/:id`, `GET /api/geo/documentos?producerId=`, `POST /api/geo/documentos?producerId=&nome=&categoria=&descricao=` (corpo = arquivo), `GET|DELETE /api/geo/documentos/:id`.
+### Ficha do município (`/api/geo/municipio/:codigo`)
+
+Painel à direita (gaveta de baixo no celular) que carrega por seções, cada uma com a fonte escrita embaixo:
+
+| Seção | Rota | Fonte | Como chega |
+|---|---|---|---|
+| Hectares e porte | `/api/geo/municipio/:codigo` | IBGE (malha), SICAR, INCRA | da base, na hora |
+| Culturas | `…/culturas` | IBGE PAM, tabela 5457 do SIDRA (último ano publicado e o anterior) | na hora, cache de 7 dias |
+| Crédito rural e garantias | `…/credito` | BCB, Matriz de Dados do Crédito Rural (OData do SICOR): custeio por safra e cultura | `data/geo/municipios-credito.json` |
+| Chuva | `…/chuva` | NASA POWER: chuva diária estimada (MERRA-2/GEOS-IT) e normal 2001–2025 | na hora, cache de 6 horas |
+| Relevo | `…/relevo` | OpenTopoData, SRTM 30 m: altitude e declividade (classes da Embrapa) | `data/geo/municipios-relevo.json` |
+| Socioambiental | `/api/geo/municipio/:codigo` | INPE (PRODES, TI, UC), IBAMA e SICAR cruzados nos imóveis do CAR | da base, na hora |
+| Áreas embargadas | `…/embargos` | IBAMA, camada pública do PAMGIA (município inteiro; sem nome nem CPF/CNPJ) | na hora, cache de 12 horas |
+
+Os arquivos `municipios-*.json` são gerados por `scripts/geo-municipios.mjs` (`--relevo` uma vez; `--credito` todo mês, para trazer os contratos novos). Garantias registradas (penhor, hipoteca, alienação fiduciária, CPR) não são públicas por imóvel; a ficha mostra o custeio do SICOR como o sinal público mais próximo e explica isso. A chuva é estimativa por satélite e modelo, não medida de pluviômetro: o portal do INMET recusa download automático.
+
+Rotas (com sessão): `GET /api/geo/status`, `/api/geo/panorama`, `/api/geo/municipio/:codigo[/culturas|credito|chuva|relevo|embargos]`, `/api/geo/municipios`, `/api/geo/imoveis?bbox=o,s,l,n`, `/api/geo/imoveis/:id`, `/api/geo/nome?q=&municipio=[&estrito=1]`, `/api/geo/matricula?numero=&municipio=`, `/api/geo/ponto?lat=&lng=[&raio=km]`, `/api/geo/sugestoes[?producerId=]`, `/api/geo/relatorio/produtor?producerId=`, `/api/geo/relatorio/municipio?municipio=`, `GET|POST /api/geo/vinculos`, `DELETE /api/geo/vinculos/:id`, `GET /api/geo/documentos?producerId=`, `POST /api/geo/documentos?producerId=&nome=&categoria=&descricao=` (corpo = arquivo), `GET|DELETE /api/geo/documentos/:id`.
 
 Base: o **Rio Grande do Sul inteiro** (497 municípios), em `data/geo/imoveis-*.ndjson.gz`, um arquivo por região do IBGE (as regiões grandes divididas em lotes, cada arquivo abaixo do limite de 100 MB do GitHub). O servidor lê todos os `imoveis*.ndjson.gz` da pasta e começa a carga logo depois de subir, em partes, sem travar o app; a primeira busca espera a carga terminar. A geometria fica como fatia do arquivo descompactado (sem cópia, fora do heap do Node), e o `npm start` sobe o Node com até 4 GB de heap. Para atualizar ou trocar de região, gere o recorte de cada lote com `ferramentas/recortar-imoveis.js --municipios lista.json` (projeto "mapa slg cvale") e rode `node scripts/geo-build.mjs --imoveis <recorte.js> --mercado <mercado.json> --camadas <camadas.json.gz> --regiao "nome" --saida data/geo/imoveis-<lote>.ndjson.gz`. Fontes:
 - CAR: GeoServer público do SICAR (`sicar:sicar_imoveis_rs`).
