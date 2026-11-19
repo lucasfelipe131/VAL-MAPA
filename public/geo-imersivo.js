@@ -12,7 +12,8 @@ const fmt = (v, d = 0) => (v === null || v === undefined || v === '' ? '—' : N
 const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 const guardar = (k, v) => { try { localStorage.setItem(k, v) } catch { /* sem armazenamento */ } }
 const ler = k => { try { return localStorage.getItem(k) } catch { return null } }
-const abrev = t => (t >= 1e6 ? `${fmt(t / 1e6, 1)} mi t` : t >= 1e3 ? `${fmt(t / 1e3, t >= 1e4 ? 0 : 1)} mil t` : `${fmt(t)} t`)
+// potencial de grãos: na unidade escolhida (t ou sacas de 60 kg, window.valUnidade)
+const abrev = t => (window.valUnidade ? window.valUnidade.curto(t) : t >= 1e6 ? `${fmt(t / 1e6, 1)} mi t` : t >= 1e3 ? `${fmt(t / 1e3, t >= 1e4 ? 0 : 1)} mil t` : `${fmt(t)} t`)
 const svg = d => `<svg class="geo-svg" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`
 const ICO = {
   busca: svg('<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>'),
@@ -28,11 +29,13 @@ const ICO = {
   copiar: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'),
   externo: svg('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
   painel: svg('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>'),
-  fechar: svg('<path d="M6 6l12 12M18 6 6 18"/>')
+  fechar: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
+  ia: svg('<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>')
 }
 const REL = { nome: 'nome completo', parecido: 'nome parecido', parcial: 'parcial', sobrenome: 'mesmo sobrenome' }
 
 if (V) iniciar()
+window.valImersivo = { voarMunicipio: (...a) => voarMunicipio(...a), abrirFichaMun: c => abrirFichaMun(c), fecharFichaMun: () => fecharFichaMun(), desenharCamadas: () => desenharCamadas(), pulso: l => pulso(l), nomeMunicipio: c => I.feiPorCod.get(c)?.name || '', municipios: () => I.feicoes.map(f => ({ code: f.code, name: f.name })), pontoMunicipio: c => pontoDentro(c), ICO }
 
 function iniciar() {
   const t = setInterval(() => {
@@ -140,6 +143,7 @@ async function sugerir(texto) {
     const mun = document.getElementById('geo-mun')?.value || ''
     itens.push({ tipo: 'matricula', grupo: 'Matrícula', ico: ICO.doc, titulo: `Buscar a matrícula ${texto.trim()}`, sub: mun ? `no município de ${mun}` : 'em todo o estado · escolha o município no painel para precisar', numero: texto.trim(), mun })
   }
+  if (window.valPesquisa && (/\?\s*$/.test(texto) || texto.trim().split(/\s+/).length >= 5)) itens.unshift({ tipo: 'ia', grupo: 'Pesquisa com IA', ico: ICO.ia, titulo: `Perguntar à IA: “${texto.trim().slice(0, 90)}”`, sub: 'Cruza imóveis, produtores, empresas e municípios e marca no mapa (Q)', q: texto.trim() })
   const nomeNaBase = !/\d/.test(texto) && n.replace(/[^a-z]/g, '').length >= 3
   if (nomeNaBase) itens.push({ tipo: 'carregando', grupo: 'Nome no registro do imóvel (CAR/SIGEF)', ico: ICO.terra, titulo: 'Procurando na base do RS…', sub: '' })
   mostrarSug(itens)
@@ -208,6 +212,7 @@ function escolher(it) {
     return
   }
   if (it.tipo === 'municipio') return voarMunicipio(it.code, { ficha: true })
+  if (it.tipo === 'ia') { q.value = ''; return window.valPesquisa?.perguntar(it.q) }
   if (it.tipo === 'coord') return voarPonto(L.latLng(it.lat, it.lng))
   if (it.tipo === 'matricula') return window.valGeo.buscarNoPainel('matricula', it.numero, it.mun)
   if (it.tipo === 'imovel') return window.valGeo.mostrarImovel(it.item)
@@ -252,12 +257,14 @@ function montarCamadas() {
       const b = e.target.closest('[data-base]'); if (b) return trocarBase(b.dataset.base)
       if (e.target.closest('[data-rapida]')) { const atual = baseAtual(); return trocarBase(atual.nome === 'Mapa' ? 'Satélite com nomes' : 'Mapa') }
       if (e.target.closest('[data-abrir]')) { d.classList.toggle('aberto'); return }
+      const un = e.target.closest('[data-unidade]'); if (un) { window.valUnidade?.set(un.dataset.unidade); return }
     })
     d.addEventListener('change', e => {
       const c = e.target.closest('[data-camada]'); if (!c) return
       const on = c.checked
       if (c.dataset.camada === 'panorama') return panorama(on)
       if (c.dataset.camada === 'armazens') return armazens(on)
+      if (c.dataset.camada === 'prospectos') return window.valPesquisa?.camada(on)
       if (c.dataset.camada === 'imoveis') { window.valGeo.ligarCamada(on); if (on && map.getZoom() < 11) V.toast('Imóveis rurais aparecem a partir do zoom 11: aproxime o mapa.'); return }
       const camada = c.dataset.camada === 'produtores' ? V.state.layer : V.state.muniLayer
       if (on) { camada.addTo(map); if (camada === V.state.muniLayer) V.renderMunicipalities() } else map.removeLayer(camada)
@@ -268,6 +275,7 @@ function montarCamadas() {
   desenharCamadas()
   map.on('layeradd layerremove', e => { if (e.layer === V.state.layer || e.layer === V.state.muniLayer) desenharCamadas() })
   addEventListener('geo:camada', desenharCamadas)
+  addEventListener('geo:unidade', () => { desenharCamadas(); if (I.pan) { pintar(); desenharLegenda() } if (I.fmCod) abrirFichaMun(I.fmCod) })
   if (ler('val-geomap-armazens') === '1') armazens(true, { salvar: false })
   document.addEventListener('click', e => { const d = document.querySelector('.im-camadas.aberto'); if (d && !d.contains(e.target)) d.classList.remove('aberto') })
 }
@@ -286,8 +294,11 @@ function desenharCamadas() {
       ${chk('panorama', 'Panorama do RS', I.panAtivo, 'Municípios por potencial, alertas ou carteira (E)')}
       ${chk('imoveis', 'Imóveis rurais', !!window.valGeo?.G.ativo, 'CAR e SIGEF, a partir do zoom 11 (I)')}
       ${chk('produtores', 'Produtores do VAL', map.hasLayer(V.state.layer), 'Cor pela prioridade, tamanho pelo volume')}
+      ${chk('prospectos', 'Produtores da base', !!window.valPesquisa?.ativo(), 'Pessoas e empresas dos cadastros públicos, com filtros (R)')}
       ${chk('armazens', 'Armazéns (CONAB)', !!I.armOn, 'Empresas e cooperativas, pela capacidade (A)')}
       ${chk('limites', 'Municípios com produtores', map.hasLayer(V.state.muniLayer), 'Limites do IBGE')}
+      <b class="im-cam-tit">Unidade do potencial</b>
+      <div class="im-cam-unidade" role="group" aria-label="Unidade do potencial">${[['t', 'Toneladas'], ['sc', 'Sacas de 60 kg']].map(([u, r]) => `<button type="button" data-unidade="${u}" aria-pressed="${(window.valUnidade?.get() || 't') === u}" class="${(window.valUnidade?.get() || 't') === u ? 'on' : ''}">${r}</button>`).join('')}</div>
       ${I.armOn ? '<p class="im-cam-leg"><i style="background:#1555b0"></i>cooperativa <i style="background:#c2410c"></i>empresa <i style="background:#5f6b66"></i>oficial</p>' : ''}
     </div>`
   d.classList.toggle('aberto', aberto)
@@ -323,7 +334,7 @@ async function armazens(on, { salvar = true } = {}) {
 // Panorama do RS: municípios pintados por um indicador
 // ---------------------------------------------------------------------------------------------
 const METRICAS = {
-  potencial: { rotulo: 'Potencial', titulo: 'Potencial de grãos em ano bom', fonte: 'IBGE PAM · soja, milho e trigo', rampa: ['#d3eee0', '#9fd8bd', '#5fbb95', '#25916c', '#0b6247'], valor: d => d?.potencialAnoBomT || 0, texto: v => abrev(v), curto: v => abrev(v).replace(' t', '') },
+  potencial: { rotulo: 'Potencial', titulo: 'Potencial de grãos em ano bom', fonte: 'IBGE PAM · soja, milho e trigo', rampa: ['#d3eee0', '#9fd8bd', '#5fbb95', '#25916c', '#0b6247'], valor: d => d?.potencialAnoBomT || 0, texto: v => abrev(v), curto: v => abrev(v).replace(/ (t|sc)$/, '') },
   alertas: { rotulo: 'Alertas', titulo: '% dos imóveis do CAR com alerta crítico', fonte: 'INPE, IBAMA e ICMBio', rampa: ['#fbe6c8', '#f6c88f', '#ee9f55', '#d4722a', '#9c4612'], valor: d => (d?.car ? d.criticos / d.car * 100 : 0), texto: v => `${fmt(v, v < 10 ? 1 : 0)}%`, curto: v => `${fmt(v, v < 10 ? 1 : 0)}%` },
   armazem: { rotulo: 'Armazém', titulo: 'Quanto da safra (ano bom) cabe nos armazéns', fonte: 'CONAB (SICARM) e IBGE PAM', rampa: ['#ece4f7', '#cdb8ec', '#a587d9', '#7a57bf', '#4f2d94'], valor: d => (d?.potencialAnoBomT > 0 && d.armazemT > 0 ? d.armazemT / d.potencialAnoBomT * 100 : 0), texto: v => `${fmt(v)}% da safra`, curto: v => `${fmt(v)}%` },
   terra: { rotulo: 'Terra', titulo: 'Valor da terra nua, lavoura boa (R$/ha)', fonte: 'Receita Federal (VTN do ITR, 2026 e 2025)', rampa: ['#f3efd6', '#e2d79b', '#c9b85c', '#a08f2e', '#6e6216'], valor: d => d?.vtnLavouraBoa || 0, texto: v => `R$ ${fmt(v)}/ha`, curto: v => `${fmt(v / 1000, 0)} mil` },
@@ -482,6 +493,7 @@ function pontoDentro(code) {
 // ---------------------------------------------------------------------------------------------
 const SECOES = [
   { id: 'hectares', rotulo: 'Hectares', titulo: 'Hectares e imóveis' },
+  { id: 'produtores', rotulo: 'Produtores', titulo: 'Produtores e empresas da base' },
   { id: 'culturas', rotulo: 'Culturas', titulo: 'Culturas na última safra do IBGE' },
   { id: 'credito', rotulo: 'Crédito', titulo: 'Crédito rural e garantias' },
   { id: 'terra', rotulo: 'Valor da terra', titulo: 'Valor da terra nua' },
@@ -492,7 +504,7 @@ const SECOES = [
   { id: 'ambiental', rotulo: 'Socioambiental', titulo: 'Socioambiental dos imóveis do CAR' },
   { id: 'embargos', rotulo: 'Embargos', titulo: 'Áreas embargadas no município' }
 ]
-const PARTES = { '': ['hectares', 'terra', 'armazenagem', 'estrutura', 'ambiental'], culturas: ['culturas'], credito: ['credito'], chuva: ['chuva'], relevo: ['relevo'], embargos: ['embargos'] }
+const PARTES = { '': ['hectares', 'produtores', 'terra', 'armazenagem', 'estrutura', 'ambiental'], culturas: ['culturas'], credito: ['credito'], chuva: ['chuva'], relevo: ['relevo'], embargos: ['embargos'] }
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const rotMes = k => { const [a, m] = String(k).split('-'); return `${MESES[Number(m) - 1]}/${a.slice(2)}` }
 const pct = (v, d = 0) => (v == null ? '—' : `${v > 0 ? '+' : ''}${fmt(v, d)}%`)
@@ -519,6 +531,7 @@ function abrirFichaMun(code) {
   const el = gavetaMun(), seq = (I.fmSeq = (I.fmSeq || 0) + 1)
   I.fmCod = code
   const det = document.getElementById('detail'); if (det && !det.hidden) det.hidden = true
+  window.valPesquisa?.fecharIA()
   V.state.map.closePopup(); fecharMenu()
   el.innerHTML = htmlTopoMun(d)
   el.hidden = false; el.scrollTop = 0
@@ -568,7 +581,7 @@ async function carregarParteMun(code, parte, seq) {
   try {
     const r = await V.api(`/api/geo/municipio/${encodeURIComponent(code)}${parte ? `/${parte}` : ''}`)
     if (I.fmSeq !== seq) return
-    if (!parte) { pintar('hectares', htmlHectares(r)); pintar('terra', htmlTerra(r)); pintar('armazenagem', htmlArmazenagem(r)); pintar('estrutura', htmlEstrutura(r)); pintar('ambiental', htmlAmbiental(r)) } else pintar(parte, RENDER[parte](r))
+    if (!parte) { pintar('hectares', htmlHectares(r)); pintar('produtores', htmlProdutoresMun(r)); pintar('terra', htmlTerra(r)); pintar('armazenagem', htmlArmazenagem(r)); pintar('estrutura', htmlEstrutura(r)); pintar('ambiental', htmlAmbiental(r)) } else pintar(parte, RENDER[parte](r))
   } catch (e) {
     if (I.fmSeq !== seq) return
     alvos.forEach(id => pintar(id, `<div class="im-fm-erro"><span>${esc(e.message || 'Não foi possível carregar agora.')}</span><button type="button" class="btn small" data-fm-repetir="${parte || 'local'}">Tentar de novo</button></div>`))
@@ -582,6 +595,9 @@ function cliqueFichaMun(e) {
   const rep = e.target.closest('[data-fm-repetir]')
   if (rep) return carregarParteMun(code, rep.dataset.fmRepetir === 'local' ? '' : rep.dataset.fmRepetir, I.fmSeq)
   if (!d) return
+  if (e.target.closest('[data-m-prospectos]')) { window.valPesquisa?.mostrarMunicipio(code); if (innerWidth <= 900) fecharFichaMun(); return }
+  const emp = e.target.closest('[data-m-empresa]')
+  if (emp) return window.valPesquisa?.abrirEmpresa(emp.dataset.mEmpresa)
   if (e.target.closest('[data-m-rel]')) return window.open(`/relatorio.html?municipio=${encodeURIComponent(d.municipio)}`, '_blank', 'noopener')
   if (e.target.closest('[data-m-imoveis]')) {
     window.valGeo.ligarCamada(true)
@@ -599,6 +615,22 @@ function cliqueFichaMun(e) {
 }
 
 // --- seções -----------------------------------------------------------------------------------
+function htmlProdutoresMun(r) {
+  const pb = r.produtoresBase, em = r.empresas
+  if (!pb && !em) return '<p class="im-fm-vazio">Produtores e empresas ainda não carregados nesta base.</p>'
+  const real = v => (v >= 1e6 ? `R$ ${fmt(v / 1e6, 1)} mi` : v >= 1e3 ? `R$ ${fmt(v / 1e3, 0)} mil` : `R$ ${fmt(v)}`)
+  return `
+    ${pb ? `<div class="im-fm-kpis">
+      <div><span>Produtores da base</span><b>${fmt(pb.total)}</b><small>${fmt(pb.comPin)} com pin no mapa</small></div>
+      <div><span>Pessoas · empresas</span><b>${fmt(pb.pessoas)} · ${fmt(pb.empresas)}</b><small>${fmt(pb.comArmazem)} com armazém próprio</small></div>
+    </div>
+    <div class="gf-acoes"><button type="button" class="btn small primary" data-m-prospectos>Mostrar os produtores no mapa</button></div>` : ''}
+    ${em ? `<div class="im-fm-sub"><b>${fmt(em.total)} empresas do agro com CNPJ ativo</b><small>${fmt(em.produtoras)} produtoras · ${fmt(em.cooperativas)} cooperativas</small></div>
+    ${em.porGrupo.length ? `<div class="im-fm-barras">${em.porGrupo.slice(0, 6).map(g => `<div><span>${esc(g.rotulo)}</span><i style="width:${Math.max(3, g.empresas / em.porGrupo[0].empresas * 100)}%"></i><b>${fmt(g.empresas)}</b></div>`).join('')}</div>` : ''}
+    ${em.maiores.length ? `<div class="im-fm-rolar"><table class="im-fm-tab"><thead><tr><th>Maiores pelo capital</th><th>Atividade</th><th>Capital</th></tr></thead><tbody>${em.maiores.slice(0, 8).map(e => `<tr><td><a href="#" data-m-empresa="${esc(e.id)}">${esc(e.nomeFantasia || e.razaoSocial)}</a></td><td>${esc(e.grupoRotulo.split(' (')[0])}</td><td>${e.capitalSocial ? real(e.capitalSocial) : '—'}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${fonteFm(esc(em.fonte))}` : ''}
+    ${fonteFm('Nomes de cadastros públicos (SIGEF, CONAB, CNPJ). O CAR não publica o dono: confirme pela matrícula ou com o produtor.')}`
+}
 const linhaFm = (rotulo, valor, sub = '') => `<div class="im-fm-linha"><span>${rotulo}${sub ? `<small>${sub}</small>` : ''}</span><b>${valor}</b></div>`
 const fonteFm = txt => `<p class="im-fm-fonte">${txt}</p>`
 const PORTES = [
@@ -627,10 +659,17 @@ function rendimento(c) {
   if (/^arroz/i.test(c.cultura)) return `${fmt(kg / 50, 0)} sc/ha`   // arroz no RS: saca de 50 kg
   return `${fmt(kg)} kg/ha`
 }
+// produção na unidade escolhida: grãos de saca de 60 kg em sacas quando a tela está em sc
+function producaoCel(c) {
+  const p = c.atual.producao; if (!p) return '—'
+  if (!/tonelada/i.test(c.unidade)) return `${fmt(p)} <small>${esc(c.unidade)}</small>`
+  if (window.valUnidade?.get() === 'sc') return GRAOS_60.test(c.cultura) ? `${fmt(p / 0.06)} sc` : `${fmt(p)} t`
+  return fmt(p)
+}
 function htmlCulturas(r) {
   if (!r.itens?.length) return `<p class="im-fm-vazio">O IBGE não registra lavouras neste município.</p>${fonteFm(esc(r.fonte || 'IBGE PAM'))}`
-  const linha = c => `<tr><th scope="row">${esc(c.cultura)}</th><td>${fmt(c.atual.areaPlantadaHa)}</td><td>${c.atual.producao ? `${fmt(c.atual.producao)}${/tonelada/i.test(c.unidade) ? '' : ` <small>${esc(c.unidade)}</small>`}` : '—'}</td><td>${rendimento(c)}</td><td class="${c.variacao.rendimentoPct < 0 ? 'neg' : c.variacao.rendimentoPct > 0 ? 'pos' : ''}">${pct(c.variacao.rendimentoPct)}</td><td>${c.atual.valorMilReais ? fmt(c.atual.valorMilReais / 1000, 1) : '—'}</td></tr>`
-  const cab = `<thead><tr><th scope="col">Cultura</th><th scope="col">Área (ha)</th><th scope="col">Produção (t)</th><th scope="col">Rendimento</th><th scope="col" title="Rendimento comparado com ${r.anoAnterior}">vs ${r.anoAnterior || '—'}</th><th scope="col">R$ mi</th></tr></thead>`
+  const linha = c => `<tr><th scope="row">${esc(c.cultura)}</th><td>${fmt(c.atual.areaPlantadaHa)}</td><td>${producaoCel(c)}</td><td>${rendimento(c)}</td><td class="${c.variacao.rendimentoPct < 0 ? 'neg' : c.variacao.rendimentoPct > 0 ? 'pos' : ''}">${pct(c.variacao.rendimentoPct)}</td><td>${c.atual.valorMilReais ? fmt(c.atual.valorMilReais / 1000, 1) : '—'}</td></tr>`
+  const cab = `<thead><tr><th scope="col">Cultura</th><th scope="col">Área (ha)</th><th scope="col">Produção${window.valUnidade?.get() === 'sc' ? '' : ' (t)'}</th><th scope="col">Rendimento</th><th scope="col" title="Rendimento comparado com ${r.anoAnterior}">vs ${r.anoAnterior || '—'}</th><th scope="col">R$ mi</th></tr></thead>`
   const prim = r.itens.slice(0, 7), resto = r.itens.slice(7)
   return `
     <p class="im-fm-lead">Safra <b>${r.ano}</b>: ${fmt(r.totais.areaPlantadaHa)} ha plantados, <b>R$ ${fmt(r.totais.valorMilReais / 1000, 0)} milhões</b> em produção.</p>
@@ -844,6 +883,7 @@ function atalhos(e) {
   if (e.key === 'Escape') {
     const aberto = I.menu || !document.getElementById('im-sug')?.hidden || document.querySelector('.im-camadas.aberto')
     fecharMenu(); fecharSug(); document.querySelector('.im-camadas')?.classList.remove('aberto')
+    if (!aberto && !V.state.map._popup && window.valPesquisa?.iaAberta()) return window.valPesquisa.fecharIA()
     if (!aberto && !V.state.map._popup) fecharFichaMun()   // nada mais aberto: Esc fecha a ficha do município
     return
   }
@@ -855,6 +895,8 @@ function atalhos(e) {
   if (k === 'p') return painel(document.getElementById('view-map').classList.contains('painel-fechado'))
   if (k === 'e') return panorama(!I.panAtivo)
   if (k === 'a') return armazens(!I.armOn)
+  if (k === 'r') return window.valPesquisa?.camada(!window.valPesquisa.ativo())
+  if (k === 'q') { e.preventDefault(); return window.valPesquisa?.abrirIA() }
   if (k === 'i') { const on = !window.valGeo.G.ativo; window.valGeo.ligarCamada(on); if (on && V.state.map.getZoom() < 11) V.toast('Imóveis rurais aparecem a partir do zoom 11: aproxime o mapa.'); return }
   if (k === 's') return trocarBase(baseAtual().nome === 'Mapa' ? 'Satélite com nomes' : 'Mapa')
   if (e.key === '?') return ajuda()
@@ -874,6 +916,8 @@ function ajuda() {
         ${linha(['E'], 'Liga ou desliga o panorama do RS')}
         ${linha(['I'], 'Liga ou desliga os imóveis rurais (zoom 11+)')}
         ${linha(['A'], 'Liga ou desliga os armazéns da CONAB')}
+        ${linha(['R'], 'Liga ou desliga os produtores da base (pins com filtros)')}
+        ${linha(['Q'], 'Pesquisa com IA: pergunte em português sobre a base')}
         ${linha(['S'], 'Troca mapa e satélite')}
         ${linha(['Esc'], 'Fecha menus e fichas')}
         ${linha(['Clique direito'], 'Menu do ponto (no celular, segure o dedo)')}

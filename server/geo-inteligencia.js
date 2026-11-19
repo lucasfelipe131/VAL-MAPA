@@ -11,6 +11,9 @@ import { promisify } from 'node:util'
 import { classificar, piorNivel, porte, modulosPorMunicipio, NIVEIS } from './geo-socioambiental.js'
 import { createFontesMunicipio, areaHa, pontoCentral } from './geo-municipio.js'
 import { municipalityMesh } from './malhas.js'
+import { createEmpresas, formatarCnpj, GRUPOS } from './geo-empresas.js'
+import { montarProspectos, filtrarProspectos, primeirosNomes, nomeProdutor } from './geo-prospeccao.js'
+import { createGeoIA } from './geo-ia.js'
 
 // ---------------------------------------------------------------------------------------------
 // Funções puras (testadas em test/geo-inteligencia.test.js)
@@ -207,7 +210,7 @@ export function juntarCabecalhos(cabs) {
   return c
 }
 
-export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer = false, malhasDir = dataDir ? path.join(dataDir, '..', 'malhas') : null, fetchImpl = fetch }) {
+export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer = false, malhasDir = dataDir ? path.join(dataDir, '..', 'malhas') : null, fetchImpl = fetch, clienteIA = null }) {
   // dados da ficha calculados antes (scripts/geo-municipios.mjs), embarcados ao lado da base
   const lerPre = nome => { try { return dataDir ? JSON.parse(fs.readFileSync(path.join(dataDir, `municipios-${nome}.json`), 'utf8')) : null } catch { return null } }
   const pre = { relevo: lerPre('relevo')?.itens || null, credito: lerPre('credito'), estrutura: lerPre('estrutura') }
@@ -215,6 +218,13 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
   const armazensPontos = (() => { try { return dataDir ? fs.readFileSync(path.join(dataDir, 'armazens-rs.json'), 'utf8') : null } catch { return null } })()
   const estruturaDe = cod => pre.estrutura?.itens?.[cod] || null
   const fontes = createFontesMunicipio({ fetchImpl, domainError, pre })
+  // nomes ligados às áreas, de cadastros públicos (scripts/geo-nomes.mjs): responsáveis por embargos do IBAMA,
+  // produtores com armazém próprio (CONAB) e empresas do agro (CNPJ da Receita)
+  const lerJson = nome => { try { return dataDir ? JSON.parse(fs.readFileSync(path.join(dataDir, nome), 'utf8')) : null } catch { return null } }
+  const responsaveis = lerJson('embargos-responsaveis.json')
+  const armazensPF = lerJson('produtores-armazem.json')
+  const armazensEmp = (() => { try { return armazensPontos ? JSON.parse(armazensPontos).pontos : [] } catch { return [] } })()
+  const empresas = createEmpresas({ arquivo: dataDir ? path.join(dataDir, 'empresas-rs.json.gz') : null, tokens: tokensNome, comparar: compararNome, casar: casarPalavra, nomeMunicipio: c => base?.cab.municipios[c] || c })
   // limite do município (malha do IBGE embarcada em data/malhas): área, centro e amostras de relevo
   async function geometriaMunicipio(cod) {
     if (!malhasDir || !fs.existsSync(path.join(malhasDir, 'RS.json'))) return null   // sem a malha embarcada (testes): a ficha sai sem a área do município
@@ -249,7 +259,8 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
     }
     return carregando
   }
-  if (aquecer) setTimeout(() => carregarAsync().catch(e => console.error('Motor geo:', e.message)), 1500)
+  // no servidor: carrega a base logo depois de subir e, em seguida, monta os produtores da base (empresas incluídas)
+  if (aquecer) setTimeout(() => carregarAsync().then(() => setTimeout(() => { try { prospectos() } catch (e) { console.error('Produtores da base:', e.message) } }, 500)).catch(e => console.error('Motor geo:', e.message)), 1500)
 
   function* montar(acc, t0) {
     const cab = juntarCabecalhos(acc.cabs), imoveis = acc.imoveis, geom = acc.geom
@@ -511,6 +522,250 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
     return f
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Produtores da base (camada de prospecção) e nomes ligados a cada área
+  // ---------------------------------------------------------------------------------------------
+  function prospectos() {
+    const b = carregar()
+    if (b.prospectos) return b.prospectos
+    const t0 = Date.now(), emp = empresas.carregar()
+    // primeiros nomes: os que mais abrem nome de sócio pessoa no CNPJ do agro no RS
+    const cont = new Map(), soma = n => { const w = slugNome(n).split(' ')[0]; if (w) cont.set(w, (cont.get(w) || 0) + 1) }
+    if (emp) for (const lista of Object.values(emp.socios)) for (const s of lista) if (s[1] === 'F') soma(s[0])
+    const primeiros = primeirosNomes([...cont].filter(([, n]) => n >= 3).map(([w]) => w))
+    // o armazém de pessoa física da CONAB (sem nome) vai para o produtor da área onde fica
+    b.prospectos = montarProspectos({ imoveis: b.imoveis, armazensPF: armazensPF?.pontos || [], localizar: (lng, lat) => buscarPonto(lng, lat, 0.05).dentro.map(x => x.r), empresas: emp?.itens || [], tokens: tokensNome, primeiros })
+    b.prospectos.primeiros = primeiros
+    console.log(`Produtores da base: ${b.prospectos.lista.length} (${b.prospectos.lista.filter(p => p.ponto).length} com pin) em ${Date.now() - t0} ms`)
+    return b.prospectos
+  }
+  // quem já é do VAL: área vinculada a um produtor, ou o mesmo nome no mesmo município
+  async function clientes() {
+    const b = carregar(), vinc = await mapaVinculos(), produtores = await store.all('producers')
+    const porMun = new Map(), nomes = new Map()
+    for (const p of produtores) {
+      nomes.set(p.id, p.name)
+      const t = tokensNome(p.name); if (t.length < 2) continue
+      const cod = codigoDe(b, p.municipality); if (!porMun.has(cod)) porMun.set(cod, []); porMun.get(cod).push({ id: p.id, t })
+    }
+    const clienteDe = x => {
+      for (const id of x.areas) { const v = vinc.get(id); if (v?.length) return { id: v[0], nome: nomes.get(v[0]) || '', por: 'área vinculada' } }
+      const t = tokensNome(x.nome)
+      for (const p of porMun.get(x.mun) || []) if (compararNome(p.t, t).casou.every(v => v === 1)) return { id: p.id, nome: nomes.get(p.id) || '', por: 'mesmo nome no município' }
+      return null
+    }
+    return { vinc, nomes, clienteDe, produtores }
+  }
+  function resumoProspecto(p, cliente) {
+    return {
+      id: p.id, nome: p.nome, tipo: p.tipo, municipio: base.cab.municipios[p.mun] || '', codigoIbge: p.mun, ponto: p.ponto,
+      areaHa: p.areaHa, lavouraHa: p.lavouraHa, potencialT: p.potT, armazemT: p.armazemT, areas: p.areas.length, fontes: p.fontes, risco: p.risco,
+      empresas: p.empresas.map(e => ({ cnpj: formatarCnpj(e.cnpj), id: e.cnpj, razaoSocial: e.razao, capitalSocial: e.capital, grupo: GRUPOS[e.grupo] || '', socio: e.socio || '' })),
+      cliente: cliente || null
+    }
+  }
+  const lerFiltrosProspecto = (b, sp) => {
+    const num = k => { const v = Number(sp.get(k)); return Number.isFinite(v) && v > 0 ? v : 0 }
+    const bb = String(sp.get('bbox') || '').split(',').map(Number)
+    return {
+      municipios: String(sp.get('municipio') || '').split(',').map(s => s.trim()).filter(Boolean).map(m => codigoDe(b, m)),
+      bbox: bb.length === 4 && bb.every(Number.isFinite) ? bb : null, tipo: ['pessoa', 'empresa'].includes(sp.get('tipo')) ? sp.get('tipo') : '',
+      areaMin: num('areaMin'), potMin: num('potMin'), fonte: ['sigef', 'conab', 'cnpj'].includes(sp.get('fonte')) ? sp.get('fonte') : '',
+      naoClientes: sp.get('naoClientes') === '1', soClientes: sp.get('soClientes') === '1', semCritico: sp.get('semCritico') === '1', comPonto: sp.get('comPonto') === '1',
+      nome: String(sp.get('nome') || '').slice(0, 80), ordenar: String(sp.get('ordenar') || '')
+    }
+  }
+  // distância em km entre [lng, lat] e lat/lng
+  const kmEntre = (c, lat, lng) => { const dx = (c[0] - lng) * 111.32 * Math.cos(lat * Math.PI / 180), dy = (c[1] - lat) * 110.57; return Math.hypot(dx, dy) }
+  function maisPerto(pontos, c, filtro = () => true) {
+    let melhor = null
+    for (const p of pontos) { if (!filtro(p)) continue; const d = kmEntre(c, p[0], p[1]); if (!melhor || d < melhor.km) melhor = { km: d, p } }
+    return melhor
+  }
+  // Mais sobre um imóvel: nomes ligados à área em cadastros públicos, valor estimado da terra e armazéns perto
+  async function detalheImovel(id, ctx = null) {
+    const b = carregar(), r = b.porId.get(id); if (!r) return null
+    const { vinc, nomes: nomesVal, clienteDe } = ctx || await clientes()
+    const pros = prospectos()
+    const rel = [r, ...(r.parcelas || []).map(x => b.porId.get(x)), r.lk ? b.porId.get(r.lk) : null].filter(Boolean)
+    const nomes = [], vistos = new Set()
+    const add = n => { const k = `${slugNome(n.nome)}|${n.fonte}`; if (n.nome && !vistos.has(k)) { vistos.add(k); nomes.push(n) } }
+    for (const id2 of vinc.get(r.id) || []) add({ nome: nomesVal.get(id2) || '', fonte: 'VAL', detalhe: 'produtor do VAL com esta área vinculada', producerId: id2 })
+    for (const x of rel) {
+      if (x.f !== 'CAR' && x.nome) {
+        const n = nomeProdutor(x.nome, pros.primeiros)
+        add({ nome: n?.nome || x.nome, fonte: 'SIGEF', detalhe: `${x.id === r.id ? 'nome da parcela' : 'parcela SIGEF ligada a este imóvel'}: “${x.nome}”`, pessoa: Boolean(n), imovelId: x.id })
+      }
+      for (const em of x.sa?.em || []) {
+        const resp = responsaveis?.itens?.[`${em[0]}|${em[1]}`]
+        if (resp) add({ nome: resp.nome, fonte: 'IBAMA', detalhe: `responsável pelo embargo ${em[1]}${resp.data ? ` de ${resp.data.split('-').reverse().join('/')}` : ''}${resp.imovel ? ` (imóvel “${resp.imovel}”)` : ''}`, pessoa: resp.pessoa === 'pessoa', cnpj: resp.cnpj ? formatarCnpj(resp.cnpj) : '' })
+      }
+    }
+    // empresas do município com o mesmo nome (razão social ou sócio)
+    const comEmpresa = []
+    for (const n of nomes.filter(n => n.fonte !== 'VAL').slice(0, 6)) for (const e of empresas.comNome(n.nome, r.mun, 3)) if (!comEmpresa.some(x => x.id === e.id)) comEmpresa.push({ ...e, porNome: n.nome })
+    const lead = pros.porArea.get(r.id) || rel.map(x => pros.porArea.get(x.id)).find(Boolean) || null
+    const vtn = estruturaDe(r.mun)?.vtn
+    const valorTerra = vtn?.lavouraBoa ? { reais: Math.round((r.lav || 0) * vtn.lavouraBoa + Math.max(0, (r.a || 0) - (r.lav || 0)) * (vtn.silviculturaOuPastagemNatural || vtn.preservacao || 0)), ano: vtn.ano, lavouraBoaHa: vtn.lavouraBoa, campoHa: vtn.silviculturaOuPastagemNatural || null, informadoPor: vtn.informadoPor } : null
+    const [lng, lat] = r.c
+    const armEmp = maisPerto(armazensEmp, r.c), armCoop = maisPerto(armazensEmp, r.c, p => p[4] === 'coop')
+    const arm = m => m && { km: Math.round(m.km * 10) / 10, nome: m.p[5] || '', capacidadeT: m.p[2], dono: m.p[4] || 'produtor', ponto: [m.p[1], m.p[0]] }
+    return {
+      id: r.id, nomes, empresas: comEmpresa.slice(0, 6), produtorDaBase: lead ? resumoProspecto(lead, clienteDe(lead)) : null,
+      valorTerra, armazemMaisPerto: arm(armEmp), cooperativaMaisPerto: arm(armCoop),
+      fontes: { embargos: responsaveis?.fonte || null, empresas: empresas.info()?.fonte || null, terra: pre.estrutura?.fontes?.vtn || null },
+      aviso: 'O CAR não publica o nome do dono. Os nomes aqui são pistas de cadastros públicos ligados à área: confirme com o produtor ou a matrícula.',
+      lat, lng
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Consultas da pesquisa com IA (só leitura). Saída compacta: vai para o modelo como resultado de ferramenta.
+  // ---------------------------------------------------------------------------------------------
+  const r1 = v => Math.round(v * 10) / 10
+  function compacto(r, vinc, nomesVal) {
+    const pc = porte(modulosDe(r))
+    return {
+      id: r.id, fonte: r.f, nome: r.nome || '', municipio: r.municipio, areaHa: r1(r.a || 0), lavouraHa: r1(r.lav || 0), potencialAnoBomT: arred(r.pot?.bom || 0),
+      ...(r.f === 'CAR' ? { situacaoCar: r.st || '', tipo: r.tp || '' } : { dentroDeCar: r.dup ? r.lk : '' }), ...(r.mat ? { matricula: r.mat } : {}),
+      porte: pc ? `${pc.rotulo} (${pc.modulos} MF)` : '', risco: r.risco ? { nivel: r.risco.nivel, motivo: r.risco.motivos?.[0]?.texto || '' } : { nivel: 'ok' },
+      produtoresVal: (vinc.get(r.id) || []).map(id => nomesVal.get(id) || id)
+    }
+  }
+  const lerMunicipios = (b, lista) => {
+    const pedidos = (Array.isArray(lista) ? lista : lista ? [lista] : []).map(String).filter(Boolean)
+    const cods = pedidos.map(m => codigoDe(b, m)), faltam = pedidos.filter((m, i) => !b.cab.municipios[cods[i]])
+    return { cods: new Set(cods.filter(c => b.cab.municipios[c])), faltam }
+  }
+  async function filtrarImoveis(f = {}) {
+    const b = carregar(), { vinc, nomes } = await clientes()
+    const { cods, faltam } = lerMunicipios(b, f.municipios)
+    if (faltam.length && !cods.size) return { erro: `Município fora da base (RS): ${faltam.join(', ')}` }
+    const nomeQ = f.nome_contem ? tokensNome(f.nome_contem) : [], sit = f.situacao_car ? slugNome(f.situacao_car) : ''
+    const perto = f.perto_de && Number.isFinite(f.perto_de.lat) && Number.isFinite(f.perto_de.lng) ? { ...f.perto_de, raio: Math.min(50, f.perto_de.raio_km || 5) } : null
+    const out = []
+    const soma = { areaHa: 0, lavouraHa: 0, potencialAnoBomT: 0 }
+    for (const r of b.imoveis) {
+      if (cods.size && !cods.has(r.mun)) continue
+      if (f.fonte && f.fonte !== 'todos' && r.f !== f.fonte) continue
+      if (r.dup && !f.incluir_parcelas_dentro_de_car) continue
+      if (f.area_min_ha && !((r.a || 0) >= f.area_min_ha)) continue
+      if (f.area_max_ha && !((r.a || 0) <= f.area_max_ha)) continue
+      if (f.lavoura_min_ha && !((r.lav || 0) >= f.lavoura_min_ha)) continue
+      if (f.porte && porte(modulosDe(r))?.classe !== f.porte) continue
+      if (sit && !slugNome(r.st || '').includes(sit)) continue
+      if (f.risco) { const n = r.risco?.nivel || 'ok'; if (f.risco === 'sem_critico' ? n === 'critico' : n !== f.risco) continue }
+      if (f.vinculado_val === true && !vinc.has(r.id)) continue
+      if (f.vinculado_val === false && vinc.has(r.id)) continue
+      if (nomeQ.length && !compararNome(nomeQ, r.tok).casou.every(v => v > 0)) continue
+      if (perto && kmEntre(r.c, perto.lat, perto.lng) > perto.raio) continue
+      out.push(r); soma.areaHa += r.a || 0; soma.lavouraHa += r.lav || 0; soma.potencialAnoBomT += r.pot?.bom || 0
+    }
+    const ord = { area: (x, y) => (y.a || 0) - (x.a || 0), potencial: (x, y) => (y.pot?.bom || 0) - (x.pot?.bom || 0), risco: (x, y) => (NIVEIS[y.risco?.nivel || 'ok'] - NIVEIS[x.risco?.nivel || 'ok']) || (y.a || 0) - (x.a || 0) }[f.ordenar] || ((x, y) => (y.lav || 0) - (x.lav || 0))
+    out.sort(ord)
+    return { total: out.length, soma: { areaHa: Math.round(soma.areaHa), lavouraHa: Math.round(soma.lavouraHa), potencialAnoBomT: arred(soma.potencialAnoBomT) }, ...(faltam.length ? { municipiosNaoEncontrados: faltam } : {}),
+      itens: out.slice(0, Math.min(50, f.limite || 20)).map(r => compacto(r, vinc, nomes)) }
+  }
+  async function buscarNomeGeral({ nome, municipio = '' }) {
+    const b = carregar(), ctx = await clientes(), cod = municipio ? codigoDe(b, municipio) : ''
+    const imoveis = buscarNome(nome, municipio).itens.slice(0, 15).map(x => ({ ...compacto(x.r, ctx.vinc, ctx.nomes), relacaoComONome: x.relacao }))
+    const q = tokensNome(nome)
+    const val = ctx.produtores.filter(p => { const c = compararNome(q, tokensNome(p.name)); return c.casou.length && c.casou.every(v => v > 0) }).slice(0, 10).map(p => ({ id: p.id, nome: p.name, municipio: p.municipality }))
+    const pros = prospectos().lista.filter(p => (!cod || p.mun === cod) && compararNome(q, tokensNome(p.nome)).casou.every(v => v === 1)).slice(0, 15).map(p => resumoProspecto(p, ctx.clienteDe(p)))
+    const emp = empresas.buscar({ q: nome, municipios: cod ? [cod] : [], limite: 10 })
+    const emb = Object.entries(responsaveis?.itens || {}).filter(([, e]) => (!cod || e.municipio === cod) && compararNome(q, tokensNome(e.nome)).casou.every(v => v === 1)).slice(0, 10)
+      .map(([k, e]) => ({ termo: k.split('|')[1], nome: e.nome, municipio: b.cab.municipios[e.municipio] || e.municipio, data: e.data, descricao: e.descricao.slice(0, 200) }))
+    return { imoveisPeloNomeDaArea: imoveis, produtoresDaBase: pros, empresas: emp ? emp.itens.map(e => ({ ...e, socios: (e.socios || []).slice(0, 8) })) : 'base de empresas não carregada', produtoresVal: val, embargosIbama: emb }
+  }
+  function mercadoCompacto(nome) {
+    const m = base.mercado[nome]; if (!m) return null
+    const cu = c => ({ areaHa: Math.round(c.area), tHaAnoBom: Math.round(c.bom * 100) / 100, tHaMedia: Math.round(c.med * 100) / 100 })
+    return { soja: cu(m.soja), milho: cu(m.milho), trigo: cu(m.trigo), lavouraVeraoHa: Math.round(m.verao), producaoAnoBomT: arred(m.potBom) }
+  }
+  async function fichaCompleta({ municipio, partes = [] }) {
+    const b = carregar(), cod = codigoDe(b, municipio), nome = b.cab.municipios[cod]
+    if (!nome) return { erro: `Município fora da base (RS): ${municipio}` }
+    const f = fichaMunicipio(cod), sa = f.socioambiental, pros = prospectos().porMun.get(cod) || []
+    const out = {
+      codigoIbge: cod, municipio: nome, moduloFiscalHa: f.moduloFiscalHa, territorio: f.territorio, portes: f.portes, situacaoCar: f.situacaoCar.slice(0, 6),
+      socioambiental: { imoveisCritico: sa.imoveisCritico, imoveisAtencao: sa.imoveisAtencao, embargosAtivos: sa.embargos.ativos, embargosDesembargados: sa.embargos.desembargados, terrasIndigenas: sa.terrasIndigenas.lista.slice(0, 5), unidadesConservacao: sa.unidadesConservacao.lista.slice(0, 5), supressaoDepoisDe2020Ha: sa.supressao.depoisDe2020Ha, supressao2009a2020Ha: sa.supressao.de2009a2020Ha },
+      mercadoIbge: mercadoCompacto(nome), estrutura: estruturaDe(cod), empresasDoAgro: empresas.resumoMunicipio(cod),
+      produtoresDaBase: { total: pros.length, comPin: pros.filter(p => p.ponto).length, pessoas: pros.filter(p => p.tipo === 'pessoa').length, empresas: pros.filter(p => p.tipo === 'empresa').length }
+    }
+    const g = partes.some(p => p === 'chuva' || p === 'relevo') ? await geometriaMunicipio(cod).catch(() => null) : null
+    for (const p of new Set(partes)) {
+      try {
+        if (p === 'culturas') out.culturas = await fontes.culturas(cod)
+        else if (p === 'credito') out.credito = await fontes.credito(cod)
+        else if (p === 'embargos') out.embargosIbama = await fontes.embargos(cod)
+        else if ((p === 'chuva' || p === 'relevo') && g) out[p] = await fontes[p](cod, g)
+      } catch (e) { out[p] = { erro: e.message } }
+    }
+    return out
+  }
+  // métricas por município para ranking (mesmas fontes da ficha e do panorama)
+  const METRICAS_MUN = {
+    potencial_ano_bom_t: x => x.pan.potencialAnoBomT, lavoura_verao_ibge_ha: x => x.pan.lavouraVeraoHa, lavoura_estimada_car_ha: x => x.pan.lavouraHa, area_car_ha: x => x.pan.areaCarHa,
+    imoveis_car: x => x.pan.car, parcelas_sigef: x => x.pan.sigef, imoveis_risco_critico: x => x.pan.criticos, imoveis_atencao: x => x.pan.atencao, imoveis_vinculados_val: x => x.vinc,
+    armazem_capacidade_t: x => x.e?.armazens?.capacidadeT ?? null, armazem_sobre_producao_pct: x => (x.e?.armazens?.capacidadeT && x.pan.potencialAnoBomT ? Math.round(x.e.armazens.capacidadeT / x.pan.potencialAnoBomT * 1000) / 10 : null),
+    vtn_lavoura_boa_rs_ha: x => x.e?.vtn?.lavouraBoa ?? null, bovinos: x => x.e?.pecuaria?.bovinos ?? null, leite_mil_litros: x => x.e?.pecuaria?.leiteMilLitros ?? null,
+    estabelecimentos_censo_agro: x => x.e?.censo?.estab ?? null, tratores: x => x.e?.censo?.tratores ?? null, area_irrigada_ha: x => x.e?.censo?.areaIrrigadaHa ?? null,
+    km_porto_rio_grande: x => x.e?.logistica?.kmPortoRioGrande ?? null, km_ferrovia: x => x.e?.logistica?.kmTrilho ?? null,
+    empresas_agro: x => x.emp?.total ?? null, produtores_da_base: x => x.pros, custeio_ultima_safra_reais: x => x.custeio
+  }
+  async function rankingMunicipios({ metrica, ordem = 'desc', limite = 15, municipios = [] }) {
+    const b = carregar(), f = METRICAS_MUN[metrica]
+    if (!f) return { erro: `Métrica desconhecida. Use uma de: ${Object.keys(METRICAS_MUN).join(', ')}` }
+    const { cods } = lerMunicipios(b, municipios), vincPorMun = new Map()
+    for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r) { if (!vincPorMun.has(r.mun)) vincPorMun.set(r.mun, new Set()); vincPorMun.get(r.mun).add(r.id) } }
+    const pros = prospectos(), cred = pre.credito?.itens || {}
+    const ultimaSafra = Object.values(cred).flatMap(m => Object.keys(m)).sort().pop()
+    const linhas = panorama().filter(p => !cods.size || cods.has(p.codigoIbge)).map(pan => {
+      const x = { pan, e: estruturaDe(pan.codigoIbge), vinc: vincPorMun.get(pan.codigoIbge)?.size || 0, pros: pros.porMun.get(pan.codigoIbge)?.length || 0,
+        emp: metrica === 'empresas_agro' ? empresas.resumoMunicipio(pan.codigoIbge) : null,
+        custeio: metrica === 'custeio_ultima_safra_reais' ? Math.round(Object.values(cred[pan.codigoIbge]?.[ultimaSafra] || {}).reduce((s, v) => s + v[1], 0)) : null }
+      return { codigoIbge: pan.codigoIbge, municipio: pan.municipio, valor: f(x), potencialAnoBomT: pan.potencialAnoBomT, lavouraVeraoHa: pan.lavouraVeraoHa }
+    }).filter(l => l.valor !== null && l.valor !== undefined)
+    linhas.sort((a, c) => (ordem === 'asc' ? a.valor - c.valor : c.valor - a.valor))
+    return { metrica, ...(metrica === 'custeio_ultima_safra_reais' ? { safra: ultimaSafra } : {}), municipiosComDado: linhas.length, itens: linhas.slice(0, Math.min(60, limite)) }
+  }
+  async function buscarEmpresasIA(f = {}) {
+    const b = carregar(), { cods } = lerMunicipios(b, f.municipios)
+    const r = empresas.buscar({ q: f.nome || '', municipios: [...cods], grupos: f.grupos || [], capitalMin: f.capital_min || 0, cooperativa: typeof f.cooperativa === 'boolean' ? f.cooperativa : null, produz: typeof f.produz === 'boolean' ? f.produz : null, ordenar: f.ordenar || 'capital', limite: Math.min(40, f.limite || 15) })
+    if (!r) return { erro: 'A base de empresas (CNPJ) ainda não foi gerada neste servidor.' }
+    return { total: r.total, fonte: empresas.info()?.fonte, itens: r.itens.map(e => ({ ...e, socios: (e.socios || []).slice(0, 10) })) }
+  }
+  async function produtoresBaseIA(f = {}) {
+    const b = carregar(), { cods } = lerMunicipios(b, f.municipios), ctx = await clientes()
+    const lista = filtrarProspectos(prospectos().lista, { municipios: [...cods], tipo: f.tipo || '', areaMin: f.area_min_ha || 0, potMin: f.potencial_min_t || 0, fonte: f.fonte || '', naoClientes: f.so_nao_clientes === true, soClientes: f.so_clientes === true, semCritico: f.sem_risco_critico === true, nome: f.nome || '', ordenar: f.ordenar || '' }, { clienteDe: ctx.clienteDe })
+    return { total: lista.length, comPin: lista.filter(x => x.p.ponto).length, itens: lista.slice(0, Math.min(50, f.limite || 20)).map(x => { const s = resumoProspecto(x.p, x.cliente); delete s.ponto; return s }) }
+  }
+  async function produtoresValIA(f = {}) {
+    const b = carregar(), links = await vinculos(), produtores = await store.all('producers')
+    const { cods } = lerMunicipios(b, f.municipios), q = f.nome ? tokensNome(f.nome) : []
+    const nAreas = new Map(); for (const l of links) nAreas.set(l.producerId, (nAreas.get(l.producerId) || 0) + 1)
+    const lista = produtores.filter(p => (!cods.size || cods.has(codigoDe(b, p.municipality))) && (!q.length || compararNome(q, tokensNome(p.name)).casou.every(v => v > 0)) && (f.sem_area_vinculada !== true || !nAreas.get(p.id)))
+    return { total: lista.length, itens: lista.slice(0, Math.min(60, f.limite || 30)).map(p => ({ id: p.id, nome: p.name, municipio: p.municipality, relacionamento: p.relationship || '', consultor: p.consultant || '', areaDeclaradaHa: p.areaHa ?? null, volumeEstimado: p.estimatedVolumeT ?? null, unidade: p.volumeUnit || 't', areasVinculadas: nAreas.get(p.id) || 0 })) }
+  }
+  async function imovelIA({ id }) {
+    const b = carregar(), r = b.porId.get(String(id)); if (!r) return { erro: 'Imóvel não encontrado.' }
+    const ctx = await clientes(), d = await detalheImovel(r.id, ctx)
+    return { ...compacto(r, ctx.vinc, ctx.nomes), modulosFiscais: r.mf || null, codigoCar: r.car || '', parcelaSigef: r.parcela || '', codigoIncra: r.incra || '', potencialT: { soja: arred(r.pot?.soja || 0), milho: arred(r.pot?.milho || 0), trigo: arred(r.pot?.trigo || 0) },
+      motivosSocioambientais: r.risco?.motivos || [], parcelasDentro: (r.parcelas || []).length, nomesLigados: d.nomes, empresasComOMesmoNome: d.empresas, produtorDaBase: d.produtorDaBase, valorTerraEstimado: d.valorTerra, armazemMaisPerto: d.armazemMaisPerto, cooperativaMaisPerto: d.cooperativaMaisPerto }
+  }
+  // referências citadas na resposta da IA → dados para os chips e pins da tela
+  async function referencias({ i = [], m = [], e = [], p = [], v = [] }) {
+    const b = carregar(), vinc = await mapaVinculos(), ctx = p.length ? await clientes() : null, produtores = v.length ? await store.all('producers') : []
+    return {
+      i: Object.fromEntries(i.filter(id => b.porId.has(id)).slice(0, 200).map(id => [id, resumo(b.porId.get(id), vinc)])),
+      m: Object.fromEntries(m.map(c => codigoDe(b, c)).filter(c => b.cab.municipios[c]).map(c => [c, { codigoIbge: c, municipio: b.cab.municipios[c] }])),
+      e: Object.fromEntries(e.map(c => [c, empresas.porCnpj(c)]).filter(([, x]) => x).map(([c, x]) => [c, { ...x, socios: x.socios.slice(0, 6) }])),
+      p: Object.fromEntries(p.map(id => prospectos().porId.get(id)).filter(Boolean).map(x => [x.id, resumoProspecto(x, ctx.clienteDe(x))])),
+      v: Object.fromEntries(produtores.filter(x => v.includes(x.id)).map(x => [x.id, { id: x.id, nome: x.name, municipio: x.municipality, lat: x.lat ?? null, lng: x.lng ?? null }]))
+    }
+  }
+  const ia = createGeoIA({ cliente: clienteIA, consultas: { filtrarImoveis, buscarNomeGeral, fichaCompleta, rankingMunicipios, buscarEmpresas: buscarEmpresasIA, produtoresBase: produtoresBaseIA, produtoresVal: produtoresValIA, imovel: imovelIA, referencias, metricas: Object.keys(METRICAS_MUN), grupos: GRUPOS } })
+
   // --- rotas /api/geo/... (todas exigem sessão, como o resto da API) -------------------------
   async function handle({ request, response, url, segments, json, readBody }) {
     const method = request.method, rota = segments[2] || '', id = segments[3] ? decodeURIComponent(segments[3]) : ''
@@ -539,8 +794,10 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
         const vinc = new Set(); for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r?.mun === cod) vinc.add(r.id) }
         const areaMun = g ? Math.round(areaHa(g)) : null
         const pan = panorama().find(x => x.codigoIbge === cod)
+        const pros = prospectos().porMun.get(cod) || []
         return json(response, 200, { ...f, territorio: { ...f.territorio, areaMunicipioHa: areaMun, carSobreMunicipioPct: areaMun ? Math.round(f.territorio.areaCarHa / areaMun * 1000) / 10 : null }, imoveisVinculados: vinc.size,
-          producaoAnoBomT: pan?.potencialAnoBomT || 0, estrutura: estruturaDe(cod), fontesEstrutura: pre.estrutura?.fontes || null })
+          producaoAnoBomT: pan?.potencialAnoBomT || 0, estrutura: estruturaDe(cod), fontesEstrutura: pre.estrutura?.fontes || null,
+          empresas: empresas.resumoMunicipio(cod), produtoresBase: { total: pros.length, comPin: pros.filter(p => p.ponto).length, pessoas: pros.filter(p => p.tipo === 'pessoa').length, empresas: pros.filter(p => p.tipo === 'empresa').length, comArmazem: pros.filter(p => p.fontes.conab).length } })
       }
       if (parte === 'culturas') return json(response, 200, await fontes.culturas(cod), { 'Cache-Control': 'private, max-age=3600' })
       if (parte === 'embargos') return json(response, 200, await fontes.embargos(cod), { 'Cache-Control': 'private, max-age=1800' })
@@ -570,6 +827,38 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
       const vinc = await mapaVinculos()
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
       return response.end(`{"type":"FeatureCollection","total":${total},"features":[${itens.map(r => feature(r, vinc)).join(',')}]}`)
+    }
+    if (rota === 'imoveis' && method === 'GET' && id && segments[4] === 'detalhe') {
+      const d = await detalheImovel(id); if (!d) throw domainError('Imóvel não encontrado.', 404)
+      return json(response, 200, d)
+    }
+    // produtores da base: a camada de prospecção (pins por município, com filtros)
+    if (rota === 'produtores-base' && method === 'GET' && !id) {
+      const b = carregar(), f = lerFiltrosProspecto(b, url.searchParams)
+      if (!f.municipios.length && !f.bbox && !f.nome) throw domainError('Escolha um município ou aproxime o mapa.', 422)
+      const ctx = await clientes(), lista = filtrarProspectos(prospectos().lista, f, { clienteDe: ctx.clienteDe })
+      const limite = Math.min(6000, Number(url.searchParams.get('limite') || 3000))
+      return json(response, 200, { total: lista.length, comPin: lista.filter(x => x.p.ponto).length, clientes: lista.filter(x => x.cliente).length,
+        fontes: { sigef: 'INCRA, SIGEF (nome da parcela)', conab: armazensPF?.fonte || null, cnpj: empresas.info()?.fonte || null }, itens: lista.slice(0, limite).map(x => resumoProspecto(x.p, x.cliente)) })
+    }
+    if (rota === 'produtores-base' && method === 'GET' && id) {
+      const b = carregar(), p = prospectos().porId.get(id); if (!p) throw domainError('Produtor da base não encontrado.', 404)
+      const ctx = await clientes()
+      return json(response, 200, { ...resumoProspecto(p, ctx.clienteDe(p)), imoveis: p.areas.slice(0, 80).map(a => resumo(b.porId.get(a), ctx.vinc)), armazens: p.armazens, empresasDetalhe: p.empresas.map(e => empresas.porCnpj(e.cnpj)).filter(Boolean) })
+    }
+    if (rota === 'empresas' && method === 'GET') {
+      const b = carregar()
+      if (id) { const e = empresas.porCnpj(id); if (!e) throw domainError('Empresa não encontrada na base do agro.', 404); return json(response, 200, e) }
+      const muns = String(url.searchParams.get('municipio') || '').split(',').map(s => s.trim()).filter(Boolean).map(m => codigoDe(b, m))
+      const r = empresas.buscar({ q: String(url.searchParams.get('q') || '').slice(0, 80), municipios: muns, grupos: String(url.searchParams.get('grupo') || '').split(',').filter(Boolean), capitalMin: Number(url.searchParams.get('capitalMin') || 0), limite: Number(url.searchParams.get('limite') || 30) })
+      if (!r) throw domainError('Base de empresas não gerada (scripts/geo-nomes.mjs --empresas).', 503)
+      return json(response, 200, { ...r, fonte: empresas.info()?.fonte })
+    }
+    // pesquisa com IA: GET diz se está ligada; POST responde em eventos (passos e resposta final)
+    if (rota === 'ia' && method === 'GET') return json(response, 200, ia.status())
+    if (rota === 'ia' && method === 'POST') {
+      const body = await readBody(request)
+      return ia.responder(request, response, body)
     }
     if (rota === 'imoveis' && method === 'GET' && id) {
       const b = carregar(), r = b.porId.get(id); if (!r) throw domainError('Imóvel não encontrado.', 404)
@@ -732,5 +1021,6 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
     throw domainError('Rota não encontrada.', 404)
   }
 
-  return { handle, carregar, carregarAsync, buscarMatricula, buscarNome, buscarPonto, sugestoes, naJanela, potencialProdutor }
+  return { handle, carregar, carregarAsync, buscarMatricula, buscarNome, buscarPonto, sugestoes, naJanela, potencialProdutor, prospectos, detalheImovel, ia,
+    consultas: { filtrarImoveis, buscarNomeGeral, fichaCompleta, rankingMunicipios, buscarEmpresas: buscarEmpresasIA, produtoresBase: produtoresBaseIA, produtoresVal: produtoresValIA, imovel: imovelIA, referencias } }
 }

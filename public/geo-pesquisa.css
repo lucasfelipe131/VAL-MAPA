@@ -1,0 +1,129 @@
+/* VAL Geomap — produtores da base (camada com filtros) e pesquisa com IA (geo-pesquisa.js) */
+
+/* ---------- botão de IA na busca única ---------- */
+.im-ia-btn{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 11px;border:1px solid #cfe7d9;border-radius:10px;background:linear-gradient(135deg,#f3fbe2,#e3f7ee);color:var(--val-forest);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;flex:none}
+.im-ia-btn:hover{border-color:#a9d6bf;background:#eef9e0}
+.im-ia-btn .geo-svg{width:15px;height:15px}
+
+/* ---------- cartão de filtros dos produtores da base ---------- */
+.im-pb{--esq:calc(var(--im-pw) + var(--im-gap) + 62px);position:absolute;z-index:1002;top:calc(var(--im-gap) + 58px);left:var(--esq);width:min(400px,calc(100% - var(--esq) - 24px));max-height:calc(100% - 150px);display:flex;flex-direction:column;background:#fff;border:1px solid var(--val-line);border-radius:16px;box-shadow:var(--im-sombra);font-family:Manrope,system-ui,sans-serif;color:var(--val-text);overflow:hidden}
+#view-map.painel-fechado .im-pb{--esq:62px}
+.im-pb.min{width:auto;max-width:min(400px,calc(100% - var(--esq) - 24px))}
+.im-pb-topo{display:flex;align-items:center;gap:4px;padding:6px 6px 6px 4px}
+.im-pb-tit{flex:1;display:flex;align-items:center;gap:8px;min-width:0;padding:6px 8px;border:0;border-radius:10px;background:transparent;font:inherit;color:var(--val-forest);cursor:pointer;text-align:left}
+.im-pb-tit:hover{background:#f3f8f5}
+.im-pb-tit b{font-size:13.5px;font-weight:800;white-space:nowrap}
+.im-pb-tit #im-pb-cont{margin-left:auto;padding:2px 8px;border-radius:999px;background:#eef6f2;font-size:12px;font-weight:800;color:var(--val-emerald-dark);white-space:nowrap}
+.im-pb-ponto{width:10px;height:10px;flex:none;border-radius:50%;background:#0f766e;box-shadow:12px 0 0 #b45309}
+.im-pb-tit .im-pb-ponto{margin-right:12px}
+.im-pb-x{display:grid;place-items:center;width:30px;height:30px;flex:none;border:0;border-radius:50%;background:transparent;color:var(--val-muted);cursor:pointer}
+.im-pb-x:hover{background:#f1f5f3;color:var(--val-text)}
+.im-pb-x .geo-svg{width:14px;height:14px}
+.im-pb-corpo{display:flex;flex-direction:column;min-height:0;padding:0 12px 12px;overflow:auto;scrollbar-width:thin}
+.im-pb-filtros{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.im-pb-campo{display:flex;flex-direction:column;gap:3px;min-width:0}
+.im-pb-campo.largo{grid-column:1 / -1}
+.im-pb-campo span{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--val-muted)}
+.im-pb-campo select{width:100%;min-width:0;height:34px;padding:0 8px;border:1px solid var(--val-line);border-radius:10px;background:#fff;font:inherit;font-size:13px;color:var(--val-text)}
+.im-pb-chk{grid-column:1 / -1;display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+.im-pb-chk input{width:16px;height:16px;accent-color:var(--val-emerald-dark)}
+.im-pb-rodape{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.im-pb-leg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;color:var(--val-muted)}
+.im-pb-leg i{display:inline-block;width:10px;height:10px;margin-right:3px;border-radius:50%;vertical-align:-1px}
+.im-pb-leg i.anel{background:#fff;border:2.2px solid #d92d20;width:9px;height:9px}
+.im-pb-msg{margin-top:8px;font-size:12px;line-height:1.4;color:var(--val-muted)}
+.im-pb-msg.erro{color:#b42318}
+.im-pb-lista{margin:8px 0 0;padding:0;list-style:none;border-top:1px solid #edf2f0}
+.im-pb-lista button{display:flex;flex-direction:column;gap:1px;width:100%;padding:7px 4px;border:0;border-bottom:1px solid #f1f5f3;background:transparent;font:inherit;text-align:left;cursor:pointer}
+.im-pb-lista button:hover{background:#f5faf7}
+.im-pb-lista b{font-size:13px;color:var(--val-forest)}
+.im-pb-lista small{font-size:11.5px;color:var(--val-muted)}
+
+/* ---------- cartões (produtor da base, empresa) ---------- */
+.im-pb-card .gf-sub,.im-emp-card .gf-sub{display:block}
+.im-dialogo .im-ajuda-card{width:min(420px,calc(100vw - 32px));max-height:min(640px,calc(100vh - 48px));overflow:auto}
+.im-dialogo .geo-ficha{padding-top:4px}
+
+/* ---------- nomes ligados à área (ficha do imóvel) ---------- */
+.gf-mais{margin-top:10px}
+.gf-mais-carregando,.gf-mais-vazio{display:block;font-size:12px;color:var(--val-muted)}
+.gf-mais-tit{display:block;margin-bottom:4px;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--val-muted)}
+.gf-nomes ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.gf-nomes li{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;font-size:13px}
+.gf-nomes li small{flex-basis:100%;font-size:11.5px;line-height:1.35;color:var(--val-muted)}
+.gf-tag{padding:1px 6px;border-radius:999px;background:#eef3f1;font-size:10.5px;font-weight:800;color:#4a5e57}
+.gf-tag.sigef{background:#eaf2ff;color:#1d4f9c}
+.gf-tag.ibama{background:#fff0ed;color:#b42318}
+.gf-tag.cnpj{background:#fff6e5;color:#8a5a00}
+.gf-pb{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;margin-top:8px;padding:8px 10px;border:1px solid #d6e9df;border-radius:12px;background:#f4fbf7;font:inherit;text-align:left;cursor:pointer}
+.gf-pb:hover{border-color:#a9d6bf}
+.gf-pb span{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--val-emerald-dark)}
+.gf-pb b{font-size:13.5px;color:var(--val-forest)}
+.gf-pb small{font-size:11.5px;color:var(--val-muted)}
+.gf-mais-aviso{margin:8px 0 0;font-size:11px;line-height:1.4;color:var(--val-muted)}
+
+/* ---------- ficha do município: produtores e empresas ---------- */
+.im-fm-sub{display:flex;flex-direction:column;gap:1px;margin-top:12px}
+.im-fm-sub b{font-size:13.5px;color:var(--val-forest)}
+.im-fm-sub small{font-size:12px;color:var(--val-muted)}
+#fm-produtores .im-fm-barras i{background:#0f766e}
+
+/* ---------- gaveta da pesquisa com IA ---------- */
+.im-ia{display:flex;flex-direction:column;overflow:hidden}
+.im-ia[hidden]{display:none}
+.im-ia .im-fm-topo{background:linear-gradient(135deg,#0b2b27,#1d5a3c)}
+.ia-aviso{display:flex;flex-direction:column;gap:3px;margin:12px 16px 0;padding:10px 12px;border-radius:12px;background:#fff8ec;border:1px solid #f3dcb2;font-size:12.5px;line-height:1.45;color:#6b4a07}
+.ia-aviso[hidden]{display:none}
+.ia-conversa{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:14px 16px 6px;display:flex;flex-direction:column;gap:10px}
+.ia-vazio p{margin:0 0 12px;font-size:13.5px;line-height:1.5;color:#3d524b}
+.ia-vazio > span{display:block;margin-bottom:6px;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--val-muted)}
+.ia-exemplos{display:flex;flex-direction:column;gap:6px}
+.ia-exemplos button{padding:8px 11px;border:1px solid var(--val-line);border-radius:12px;background:#fff;font:inherit;font-size:13px;text-align:left;color:var(--val-forest);cursor:pointer}
+.ia-exemplos button:hover{background:#f3f9f5;border-color:#bfd8ce}
+.ia-q{align-self:flex-end;max-width:88%;padding:9px 12px;border-radius:14px 14px 4px 14px;background:#0b2b27;color:#fff;font-size:13.5px;line-height:1.45;white-space:pre-wrap}
+.ia-r{max-width:100%;padding:10px 12px;border:1px solid #e4ece8;border-radius:14px 14px 14px 4px;background:#f7faf8;font-size:13.5px;line-height:1.55}
+.ia-r.erro{background:#fff3f1;border-color:#f6cfc8}
+.ia-erro{margin:0;color:#b42318}
+.ia-passos{display:flex;flex-direction:column;gap:3px}
+.ia-passos b{font-size:13px;color:var(--val-forest)}
+.ia-passos small{font-size:12px;color:var(--val-muted)}
+.ia-girando{width:14px;height:14px;border:2px solid #cfe2d9;border-top-color:var(--val-emerald-dark);border-radius:50%;animation:ia-gira .8s linear infinite}
+@keyframes ia-gira{to{transform:rotate(360deg)}}
+.ia-texto p{margin:0 0 8px}
+.ia-texto h4{margin:10px 0 4px;font-size:13.5px;color:var(--val-forest)}
+.ia-texto ul,.ia-texto ol{margin:0 0 8px;padding-left:20px}
+.ia-texto li{margin:2px 0}
+.ia-texto code{padding:0 4px;border-radius:5px;background:#eaf1ee;font-size:12px}
+.ia-texto .im-fm-rolar{margin:6px 0 10px}
+.ia-texto > :last-child{margin-bottom:0}
+.ia-chip{display:inline-flex;align-items:center;gap:3px;margin:0 2px;padding:0 7px;height:20px;border:1px solid #c9e4b0;border-radius:999px;background:#f1fadf;font:inherit;font-size:11px;font-weight:800;color:#3f6212;vertical-align:1px;cursor:pointer}
+.ia-chip:hover{background:#e4f5c4}
+.ia-chip .geo-svg{width:11px;height:11px}
+.ia-chip-e{border-color:#f0d9a8;background:#fff7e6;color:#8a5a00}
+.ia-chip-m{border-color:#cfe0f6;background:#eef5ff;color:#1d4f9c}
+.ia-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px;padding-top:8px;border-top:1px solid #e8efec}
+.ia-meta small{font-size:11.5px;color:var(--val-muted)}
+.ia-meta .btn .geo-svg{width:14px;height:14px;margin-right:4px}
+.ia-form{display:flex;align-items:flex-end;gap:8px;padding:10px 16px 6px;border-top:1px solid #edf2f0;background:#fff}
+.ia-form textarea{flex:1;min-height:42px;max-height:140px;padding:9px 11px;border:1px solid var(--val-line);border-radius:12px;font:inherit;font-size:13.5px;line-height:1.4;resize:vertical;color:var(--val-text)}
+.ia-form textarea:focus{outline:0;border-color:#7cc9a8;box-shadow:0 0 0 3px rgba(0,200,150,.18)}
+.ia-rodape{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:0 16px 12px;font-size:11px;line-height:1.35;color:var(--val-muted)}
+.ia-rodape button{flex:none;border:0;background:transparent;font:inherit;font-size:11.5px;font-weight:800;color:var(--val-emerald-dark);cursor:pointer}
+
+@media (max-width:900px){
+ .im-pb{--esq:12px;top:calc(var(--im-gap) + 58px);left:12px;width:calc(100% - 24px);max-height:48%}
+ .im-pb.min{width:auto}
+ #view-map:not(.painel-fechado) .im-pb{display:none}   /* o painel ocupa a tela: os filtros voltam quando ele fecha */
+ .im-ia{max-height:88%}
+ .im-ia-btn span{display:none}
+}
+@media (prefers-reduced-motion:reduce){.ia-girando{animation:none}}
+
+/* ---------- unidade do potencial (t ou sacas) no menu de camadas ---------- */
+.im-cam-unidade{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;border:1px solid var(--val-line);border-radius:11px;background:#f4f7f5}
+.im-cam-unidade button{height:30px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:var(--val-muted);cursor:pointer}
+.im-cam-unidade button.on{background:#fff;color:var(--val-forest);box-shadow:0 1px 3px rgba(4,28,24,.14)}
+
+/* pin de grupo: produtores só com CNPJ (sem o ponto da lavoura), no município */
+.im-pb-grupo-wrap{background:none;border:0}
+.im-pb-grupo{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#fff7ec;border:2px dashed #b45309;box-shadow:0 2px 8px rgba(4,28,24,.22);font:800 12px/1 Manrope,system-ui,sans-serif;color:#8a4a06;cursor:pointer}
