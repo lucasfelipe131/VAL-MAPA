@@ -7,6 +7,18 @@
 const V = window.valMapa
 const G = { ativo: false, layer: null, res: null, pins: null, itens: [], sel: new Set(), aba: 'nome', ultimaBusca: '', status: null, timer: null }
 const SC_T = 0.06
+// Unidade do potencial na tela: toneladas ou sacas de 60 kg. Escolha guardada no navegador e usada por todos os
+// módulos do Geomap (window.valUnidade); quem desenha potencial escuta o evento geo:unidade para redesenhar.
+const UN = { atual: (() => { try { return localStorage.getItem('val-geomap-unidade') === 'sc' ? 'sc' : 't' } catch { return 't' } })() }
+const potTxt = (t, sufixo = '') => (UN.atual === 'sc' ? `${fmt(Math.round((t || 0) / SC_T))} sc${sufixo}` : `${fmt(t)} t${sufixo}`)
+const potCurto = t => {
+  const v = UN.atual === 'sc' ? (t || 0) / SC_T : (t || 0), u = UN.atual === 'sc' ? 'sc' : 't'
+  return v >= 1e6 ? `${fmt(v / 1e6, 1)} mi ${u}` : v >= 1e3 ? `${fmt(v / 1e3, v >= 1e4 ? 0 : 1)} mil ${u}` : `${fmt(v)} ${u}`
+}
+window.valUnidade = {
+  get: () => UN.atual, SC_T, pot: potTxt, curto: potCurto,
+  set(u) { UN.atual = u === 'sc' ? 'sc' : 't'; try { localStorage.setItem('val-geomap-unidade', UN.atual) } catch { /* sem armazenamento */ } window.dispatchEvent(new CustomEvent('geo:unidade', { detail: { unidade: UN.atual } })) }
+}
 const esc = s => (V ? V.esc(s) : String(s ?? ''))
 const fmt = (v, d = 0) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: d }))
 const COR = { vinculado: '#2d8cff', livre: '#e5a528', parcela: '#ffffff', selecionado: '#00c896', alta: '#009f78', media: '#e5a528', baixa: '#9aa8a3' }
@@ -161,7 +173,7 @@ function estilo(f) {
 }
 function aoCriarFeicao(f, layer) {
   const p = f.properties
-  layer.bindTooltip(`<b>${esc(rotulo(p))}</b><br>${esc(p.fonte)}${p.dentroDoCar ? ' (dentro de um CAR)' : ''} · ${esc(p.municipio)} · ${fmt(p.areaHa, 1)} ha${p.potencialT.anoBom ? ` · ~${fmt(p.potencialT.anoBom)} t/ano` : ''}${p.matricula ? `<br>mat. ${esc(p.matricula)}` : ''}${p.produtores?.length ? `<br>Vinculado a ${esc(p.produtores.map(produtorNome).join(', '))}` : ''}${p.porte ? `<br>${esc(p.porte.rotulo)} · ${fmt(p.porte.modulos, 1)} MF` : ''}${p.socioambiental && p.socioambiental.nivel !== 'ok' ? `<br><b style="color:${p.socioambiental.nivel === 'critico' ? '#b42318' : '#8a5a00'}">${p.socioambiental.nivel === 'critico' ? 'Risco crítico' : 'Atenção'}:</b> ${esc(p.socioambiental.motivos[0]?.texto || '')}` : ''}`, { sticky: true })
+  layer.bindTooltip(`<b>${esc(rotulo(p))}</b><br>${esc(p.fonte)}${p.dentroDoCar ? ' (dentro de um CAR)' : ''} · ${esc(p.municipio)} · ${fmt(p.areaHa, 1)} ha${p.potencialT.anoBom ? ` · ~${potTxt(p.potencialT.anoBom, '/ano')}` : ''}${p.matricula ? `<br>mat. ${esc(p.matricula)}` : ''}${p.produtores?.length ? `<br>Vinculado a ${esc(p.produtores.map(produtorNome).join(', '))}` : ''}${p.porte ? `<br>${esc(p.porte.rotulo)} · ${fmt(p.porte.modulos, 1)} MF` : ''}${p.socioambiental && p.socioambiental.nivel !== 'ok' ? `<br><b style="color:${p.socioambiental.nivel === 'critico' ? '#b42318' : '#8a5a00'}">${p.socioambiental.nivel === 'critico' ? 'Risco crítico' : 'Atenção'}:</b> ${esc(p.socioambiental.motivos[0]?.texto || '')}` : ''}`, { sticky: true })
   layer.on('click', e => {
     if (V.state.plan?.active) return   // planejando rota: o clique vai para o mapa (centro da visita)
     L.DomEvent.stopPropagation(e)
@@ -182,10 +194,13 @@ function alternarSelecao(p) {
 function abrirFicha(p, latlng, outros = []) {
   const map = V.state.map; if (!map) return
   const el = document.createElement('div'); el.className = 'geo-ficha'
-  const desenhar = () => { el.innerHTML = htmlFicha(p, outros) }
+  const desenhar = () => { el.innerHTML = htmlFicha(p, outros); const m = G.mais?.get(p.id); if (m) el.querySelector('[data-gf-mais]').innerHTML = htmlMais(m) }
   desenhar()
+  carregarMais(p, el)
   el.addEventListener('click', async e => {
     if (e.target.closest('[data-gf-sel]')) { alternarSelecao(p); desenhar(); return }
+    const pb = e.target.closest('[data-gf-pb]'); if (pb) { map.closePopup(); window.valPesquisa?.abrirProspecto(pb.dataset.gfPb); return }
+    const emp = e.target.closest('[data-gf-emp]'); if (emp) { window.valPesquisa?.abrirEmpresa(emp.dataset.gfEmp); return }
     if (e.target.closest('[data-gf-zoom]')) { map.closePopup(); map.flyToBounds([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { ...folga(70), maxZoom: 16, duration: .9 }); return }
     if (e.target.closest('[data-gf-rel]')) { window.open(`/relatorio.html?municipio=${encodeURIComponent(p.municipio)}`, '_blank', 'noopener'); return }
     if (e.target.closest('[data-gf-vinc]')) {
@@ -219,15 +234,16 @@ function htmlFicha(p, outros) {
     <div class="gf-kpis">
       <div><span>Área</span><b>${fmt(p.areaHa, 1)} ha</b></div>
       <div><span>Lavoura est.</span><b>${fmt(p.lavouraHa)} ha</b></div>
-      <div><span>Potencial</span><b>${pot.anoBom ? `~${fmt(pot.anoBom)} t` : '—'}</b></div>
+      <div><span>Potencial</span><b>${pot.anoBom ? `~${potTxt(pot.anoBom)}` : '—'}</b></div>
     </div>
-    ${pot.anoBom ? `<div class="gf-culturas">${[['Soja', pot.soja], ['Milho', pot.milho], ['Trigo', pot.trigo]].filter(([, v]) => v > 0).map(([n, v]) => `<span><i class="c-${n.toLowerCase()}"></i>${n} ${fmt(v)} t</span>`).join('')}</div>` : ''}
+    ${pot.anoBom ? `<div class="gf-culturas">${[['Soja', pot.soja], ['Milho', pot.milho], ['Trigo', pot.trigo]].filter(([, v]) => v > 0).map(([n, v]) => `<span><i class="c-${n.toLowerCase()}"></i>${n} ${potTxt(v)}</span>`).join('')}</div>` : ''}
     <ul class="gf-linhas">
       ${p.matricula ? `<li>Matrícula <b>${esc(p.matricula)}</b>${p.cns ? ` · cartório ${esc(p.cns)}` : ''}</li>` : ''}
       ${p.porte ? `<li>${esc(p.porte.rotulo)} · ${fmt(p.porte.modulos, 1)} módulos fiscais</li>` : ''}
       ${sa?.motivos?.length ? sa.motivos.slice(0, 2).map(m => `<li class="gf-risco ${m.nivel}">${esc(m.texto)}</li>`).join('') : ''}
       ${p.produtores?.length ? `<li class="gf-vinc">Vinculado a ${p.produtores.map(id => `<a href="#" data-detail="${esc(id)}">${esc(produtorNome(id))}</a>`).join(', ')}</li>` : ''}
     </ul>
+    <div class="gf-mais" data-gf-mais><span class="gf-mais-carregando">Procurando nomes ligados à área…</span></div>
     ${outros.length ? `<div class="gf-outros"><span>Também neste ponto</span>${outros.slice(0, 4).map(o => `<button type="button" data-gf-outro="${esc(o.id)}">${esc(o.fonte)} · ${esc(rotulo(o))} · ${fmt(o.areaHa)} ha</button>`).join('')}</div>` : ''}
     <div class="gf-vincular">
       <select data-gf-prod aria-label="Produtor do VAL"><option value="">Vincular a produtor…</option>${produtores.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.municipality)}</option>`).join('')}</select>
@@ -239,6 +255,35 @@ function htmlFicha(p, outros) {
       <button type="button" class="btn small ghost" data-gf-zoom>Aproximar</button>
       <button type="button" class="btn small ghost" data-gf-rel>${ICO.relatorio}Município</button>
     </div>`
+}
+// Mais sobre o imóvel: nomes ligados à área em cadastros públicos, valor da terra e armazéns perto
+async function carregarMais(p, el) {
+  G.mais ||= new Map()
+  if (G.mais.has(p.id)) return
+  try {
+    const d = await V.api(`/api/geo/imoveis/${encodeURIComponent(p.id)}/detalhe`)
+    G.mais.set(p.id, d)
+    const alvo = el.querySelector('[data-gf-mais]'); if (alvo) alvo.innerHTML = htmlMais(d)
+  } catch { const alvo = el.querySelector('[data-gf-mais]'); if (alvo) alvo.innerHTML = '' }
+}
+const ROT_FONTE = { VAL: 'cliente VAL', SIGEF: 'SIGEF', IBAMA: 'embargo IBAMA' }
+function htmlMais(d) {
+  const real = v => (v >= 1e6 ? `R$ ${fmt(v / 1e6, 1)} mi` : `R$ ${fmt(v / 1e3, 0)} mil`)
+  const nomes = d.nomes.filter(n => n.fonte !== 'VAL')
+  const linhas = [
+    ...nomes.slice(0, 4).map(n => `<li><b>${esc(n.nome)}</b><span class="gf-tag ${n.fonte.toLowerCase()}">${esc(ROT_FONTE[n.fonte] || n.fonte)}</span><small>${esc(n.detalhe)}</small></li>`),
+    ...d.empresas.slice(0, 2).map(e => `<li><a href="#" data-gf-emp="${esc(e.id)}"><b>${esc(e.razaoSocial)}</b></a><span class="gf-tag cnpj">CNPJ</span><small>${esc(e.cnpj)} · ${esc(e.atividade.replace(/^d+s*/, ''))} · casou com ${esc(e.casou)}</small></li>`)
+  ]
+  const pb = d.produtorDaBase
+  return `
+    ${linhas.length ? `<div class="gf-nomes"><span class="gf-mais-tit">Nomes ligados à área</span><ul>${linhas.join('')}</ul></div>` : '<p class="gf-mais-vazio">Nenhum nome ligado a esta área nos cadastros públicos (o CAR não publica o dono).</p>'}
+    ${pb ? `<button type="button" class="gf-pb" data-gf-pb="${esc(pb.id)}"><span>Produtor da base</span><b>${esc(pb.nome)}</b><small>${fmt(pb.areas)} área${pb.areas === 1 ? '' : 's'} · ${fmt(pb.areaHa)} ha${pb.potencialT ? ` · ~${potTxt(pb.potencialT)}` : ''}${pb.cliente ? ' · já é cliente' : ''}</small></button>` : ''}
+    <ul class="gf-linhas">
+      ${d.valorTerra?.reais ? `<li>Terra (estimativa pelo VTN ${d.valorTerra.ano}): <b>${real(d.valorTerra.reais)}</b></li>` : ''}
+      ${d.armazemMaisPerto ? `<li>Armazém mais perto: <b>${esc(d.armazemMaisPerto.nome)}</b> a ${fmt(d.armazemMaisPerto.km, 1)} km</li>` : ''}
+      ${d.cooperativaMaisPerto && d.cooperativaMaisPerto.nome !== d.armazemMaisPerto?.nome ? `<li>Cooperativa mais perto: <b>${esc(d.cooperativaMaisPerto.nome)}</b> a ${fmt(d.cooperativaMaisPerto.km, 1)} km</li>` : ''}
+    </ul>
+    ${linhas.length ? `<p class="gf-mais-aviso">${esc(d.aviso)}</p>` : ''}`
 }
 const restilizar = () => { G.layer?.setStyle(estilo); G.res?.setStyle(f => ({ ...estilo(f), weight: 2.5, fillOpacity: .28 })) }
 // Legenda da camada de imóveis, no canto do mapa, só com a camada ligada; mostra também o estado da janela
@@ -322,12 +367,12 @@ function desenharResultado() {
   const sel = G.itens.filter(i => G.sel.has(i.id)), somaSel = somaSelecao(sel)
   const produtores = (V.state.data?.producers || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   box.innerHTML = `
-    <p class="geo-soma"><b>${fmt(G.itens.length)} área${G.itens.length === 1 ? '' : 's'}</b> · ${fmt(soma.areaHa)} ha · lavoura estimada ${fmt(soma.lavouraHa)} ha · ~${fmt(soma.anoBom)} t/ano em ano bom</p>
+    <p class="geo-soma"><b>${fmt(G.itens.length)} área${G.itens.length === 1 ? '' : 's'}</b> · ${fmt(soma.areaHa)} ha · lavoura estimada ${fmt(soma.lavouraHa)} ha · ~${potTxt(soma.anoBom, '/ano')} em ano bom</p>
     <label class="toggle"><input type="checkbox" data-geo-todos ${sel.length === G.itens.length ? 'checked' : ''}><span>Selecionar todas</span></label>
     <ul class="geo-lista">${G.itens.map(i => `<li class="${G.sel.has(i.id) ? 'on' : ''} ${i.relacao ? `rel-${i.relacao}` : ''} ${i.socioambiental?.nivel === 'critico' ? 'risco' : ''}">
       <input type="checkbox" data-geo-sel="${esc(i.id)}" ${G.sel.has(i.id) ? 'checked' : ''} aria-label="Selecionar ${esc(rotulo(i))}">
       <div class="geo-item"><b>${esc(rotulo(i))}</b>
-        <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)}${i.noMunicipio === false && G.busca?.munNome ? ` <em>(fora de ${esc(G.busca.munNome)})</em>` : ''} · ${fmt(i.areaHa, 1)} ha${i.potencialT.anoBom ? ` · ~${fmt(i.potencialT.anoBom)} t/ano` : ''}</span>
+        <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)}${i.noMunicipio === false && G.busca?.munNome ? ` <em>(fora de ${esc(G.busca.munNome)})</em>` : ''} · ${fmt(i.areaHa, 1)} ha${i.potencialT.anoBom ? ` · ~${potTxt(i.potencialT.anoBom, '/ano')}` : ''}</span>
         ${i.matricula ? `<span>mat. ${esc(i.matricula)}${i.cns ? ` · cartório ${esc(i.cns)}` : ''}</span>` : ''}
         ${i.produtores?.length ? `<span class="geo-vinc">Vinculado a ${esc(i.produtores.map(produtorNome).join(', '))}</span>` : ''}</div>
       <div class="geo-item-acoes">${badgeRisco(i)}${i.relacao ? `<span class="badge ${REL[i.relacao][1]}" title="${esc(REL[i.relacao][2])}">${esc(REL[i.relacao][0])}</span>` : ''}<button class="btn ghost small" type="button" data-geo-ver="${esc(i.id)}">Ver</button></div></li>`).join('')}</ul>
@@ -335,7 +380,7 @@ function desenharResultado() {
     ${G.itens.some(i => i.relacao === 'sobrenome') ? '<p class="hint">“Mesmo sobrenome”: o registro não traz o primeiro nome buscado. Pode ser parente ou área da família; confira antes de vincular.</p>' : ''}
     ${G.busca?.sobrenomeCortado ? `<p class="hint">O sobrenome é comum: mostrando 80 de ${fmt(G.busca.sobrenomeCortado)} áreas com ele. Escreva o nome completo ou escolha o município.</p>` : ''}
     ${sel.length ? `<div class="geo-acoes">
-      <p class="geo-soma"><b>${sel.length} selecionada${sel.length === 1 ? '' : 's'}</b> · lavoura ${fmt(somaSel.lavouraHa)} ha · ~${fmt(somaSel.anoBom)} t/ano (soja ${fmt(somaSel.soja)} · milho ${fmt(somaSel.milho)} · trigo ${fmt(somaSel.trigo)})</p>
+      <p class="geo-soma"><b>${sel.length} selecionada${sel.length === 1 ? '' : 's'}</b> · lavoura ${fmt(somaSel.lavouraHa)} ha · ~${potTxt(somaSel.anoBom, '/ano')} (soja ${potTxt(somaSel.soja)} · milho ${potTxt(somaSel.milho)} · trigo ${potTxt(somaSel.trigo)})</p>
       <label class="field"><span>Vincular a produtor do VAL</span><select id="geo-produtor"><option value="">Escolha…</option>${produtores.map(p => `<option value="${esc(p.id)}">${esc(p.name)} — ${esc(p.municipality)}</option>`).join('')}</select></label>
       <div class="row between"><button class="btn small primary" type="button" data-geo-vincular>Vincular</button><button class="btn small" type="button" data-geo-novo>Cadastrar novo produtor</button></div>
       <div id="geo-novo-form" hidden></div>
@@ -363,7 +408,7 @@ async function cliqueResultado(e) {
 async function vincular(producerId, ids, origem = G.ultimoTipo === 'nome' ? 'busca-nome' : 'busca-matricula', busca = G.ultimaBusca) {
   try {
     const r = await V.api('/api/geo/vinculos', { method: 'POST', body: { producerId, imovelIds: ids, origem, busca } })
-    V.toast(`${r.criados} área(s) vinculada(s) a ${produtorNome(producerId)} · potencial ~${fmt(r.potencial.anoBom)} t/ano em ano bom.`)
+    V.toast(`${r.criados} área(s) vinculada(s) a ${produtorNome(producerId)} · potencial ~${potTxt(r.potencial.anoBom, '/ano')} em ano bom.`)
     G.ultimaJanela = ''; await carregarJanela()
     for (const i of G.itens) if (ids.includes(i.id)) i.produtores = [...new Set([...(i.produtores || []), producerId])]
     G.sel = new Set(); restilizar(); desenharResultado()
@@ -393,7 +438,7 @@ async function criarProdutor() {
   const cultures = ['soja', 'milho', 'trigo'].filter(c => soma[c] > 0)
   const body = {
     name, municipality, uf: 'RS', lat: maior.ponto[1], lng: maior.ponto[0], locationPrecision: 'exact',
-    areaHa: Math.round(soma.lavouraHa), estimatedVolumeT: Math.round(soma.anoBom), volumeUnit: 't', cultures,
+    areaHa: Math.round(soma.lavouraHa), ...(UN.atual === 'sc' ? { estimatedVolumeSc: Math.round(soma.anoBom / SC_T), volumeUnit: 'sc' } : { estimatedVolumeT: Math.round(soma.anoBom), volumeUnit: 't' }), cultures,
     relationship: document.getElementById('geo-novo-rel').value || 'prospect',
     notes: `Áreas identificadas pelo motor geo (CAR/SIGEF): ${sel.length} imóvel(is). Busca: “${G.ultimaBusca}”. Área = lavoura estimada; volume = potencial de grãos em ano bom pelo mix do município (IBGE).`
   }
@@ -437,11 +482,11 @@ async function secaoDetalhe(producerId) {
       ${r.vinculos.length ? `
       <div class="geo-kpis">
         <div><span>Lavoura estimada</span><b>${fmt(pot.lavouraHa)} ha</b><small>${r.imoveisContados} imóve${r.imoveisContados === 1 ? 'l' : 'is'} · ${fmt(pot.areaHa)} ha</small></div>
-        <div><span>Potencial ano bom</span><b>${fmt(pot.anoBom)} t</b><small>média de 5 anos: ${fmt(pot.media)} t</small></div>
+        <div><span>Potencial ano bom</span><b>${potTxt(pot.anoBom)}</b><small>média de 5 anos: ${potTxt(pot.media)}</small></div>
         <div><span>Porte</span><b>${r.porte ? esc(r.porte.rotulo.replace(' produtor', '')) : '—'}</b><small>${r.porte ? `${fmt(r.porte.modulos, 1)} módulos fiscais` : ''}</small></div>
         <div class="geo-kpi-risco ${nivel}"><span>Socioambiental</span><b>${ROT_RISCO[nivel].replace(/^./, c => c.toUpperCase())}</b><small>${sa?.motivos?.length ? `${sa.motivos.length} apontamento${sa.motivos.length === 1 ? '' : 's'}` : 'nas camadas consultadas'}</small></div>
       </div>
-      ${culturas.length ? `<div class="geo-culturas">${culturas.map(([n, v]) => `<div><span>${n}</span><i style="--w:${(v / maxCult * 100).toFixed(1)}%"></i><b>${fmt(v)} t</b></div>`).join('')}</div>` : ''}
+      ${culturas.length ? `<div class="geo-culturas">${culturas.map(([n, v]) => `<div><span>${n}</span><i style="--w:${(v / maxCult * 100).toFixed(1)}%"></i><b>${potTxt(v)}</b></div>`).join('')}</div>` : ''}
       ${r.porte ? `<p class="geo-credito">${ICO.escudo}<span>${esc(r.porte.credito)}</span></p>` : ''}
       ${sa?.motivos?.length ? `<ul class="geo-motivos">${sa.motivos.slice(0, 3).map(m => `<li class="${m.nivel}"><span>${esc(m.texto)}</span><small>${esc(m.imovel)} · ${esc(m.fonte)}</small></li>`).join('')}${sa.motivos.length > 3 ? `<li class="mais"><small>e mais ${sa.motivos.length - 3} no relatório</small></li>` : ''}</ul>` : ''}
       <ul class="geo-lista compacta">${r.vinculos.map(l => `<li><div class="geo-item"><b>${esc(l.imovel ? rotulo(l.imovel) : l.nome || l.imovelId)}</b><span>${esc(l.fonte)} · ${esc(l.municipio)} · ${fmt(l.areaHa, 1)} ha${l.matricula ? ` · mat. ${esc(l.matricula)}` : ''}</span></div>
@@ -551,7 +596,7 @@ function linhaSugestao(i) {
   const tag = i.relacao ? `<span class="badge ${REL[i.relacao][1]}" title="${esc(REL[i.relacao][2])}">${esc(REL[i.relacao][0])}</span>`
     : i.motivo === 'ponto' ? '<span class="badge watch">no ponto</span>' : `<span class="badge incomplete">a ${fmt((i.km || 0) * 1000)} m</span>`
   return `<li><div class="geo-item"><b>${esc(rotulo(i))}</b>
-      <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)} · ${fmt(i.areaHa, 1)} ha${i.potencialT?.anoBom ? ` · ~${fmt(i.potencialT.anoBom)} t/ano` : ''}</span>
+      <span>${esc(i.fonte)}${i.dentroDoCar ? ' · dentro de um CAR' : ''} · ${esc(i.municipio)} · ${fmt(i.areaHa, 1)} ha${i.potencialT?.anoBom ? ` · ~${potTxt(i.potencialT.anoBom, '/ano')}` : ''}</span>
       ${i.matricula ? `<span>mat. ${esc(i.matricula)}</span>` : ''}
       ${i.produtores?.length ? `<span class="geo-vinc">Vinculado a ${esc(i.produtores.map(produtorNome).join(', '))}</span>` : ''}</div>
     <div class="geo-item-acoes">${tag}${badgeRisco(i)}<button class="btn ghost small" type="button" data-geo-sug-ver="${esc(i.id)}">Ver</button><button class="btn small" type="button" data-geo-sug-vincular="${esc(i.id)}">Vincular</button></div></li>`
@@ -591,4 +636,16 @@ async function mostrarVinculos(vinculos) {
 }
 
 // API para os outros módulos da tela (geo-imersivo.js: busca única, panorama, menu do mapa)
-window.valGeo = { G, abrirFicha, mostrarImovel, ligarCamada, buscarNoPainel, alternarSelecao, carregarJanela, rotulo }
+// usados pela camada de produtores da base e pela pesquisa com IA (geo-pesquisa.js)
+// áreas de um produtor da base: viram o resultado do painel, todas selecionadas, com o cadastro aberto
+function novoProdutorComAreas(itens, nome) {
+  G.itens = itens.slice(); G.sel = new Set(itens.map(i => i.id)); G.ultimoTipo = 'nome'; G.ultimaBusca = nome
+  G.res.clearLayers(); marcarPins(itens); restilizar(); desenharResultado(); abrirNovoProdutor(nome)
+  window.dispatchEvent(new CustomEvent('geo:painel', { detail: { abrir: true, alvo: 'geo-novo-form' } }))
+}
+// contorno em destaque de vários imóveis (até 25), sem abrir ficha
+async function destacar(ids) {
+  G.destaque.clearLayers()
+  for (const id of ids.slice(0, 25)) V.api(`/api/geo/imoveis/${encodeURIComponent(id)}`).then(fc => G.destaque.addData({ ...fc, features: fc.features.filter(x => x.id === id) })).catch(() => {})
+}
+window.valGeo = { G, abrirFicha, mostrarImovel, ligarCamada, buscarNoPainel, alternarSelecao, carregarJanela, rotulo, novoProdutorComAreas, destacar }
