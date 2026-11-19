@@ -9,6 +9,8 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { promisify } from 'node:util'
 import { classificar, piorNivel, porte, modulosPorMunicipio, NIVEIS } from './geo-socioambiental.js'
+import { createFontesMunicipio, areaHa, pontoCentral } from './geo-municipio.js'
+import { municipalityMesh } from './malhas.js'
 
 // ---------------------------------------------------------------------------------------------
 // Funções puras (testadas em test/geo-inteligencia.test.js)
@@ -205,7 +207,17 @@ export function juntarCabecalhos(cabs) {
   return c
 }
 
-export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer = false }) {
+export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer = false, malhasDir = dataDir ? path.join(dataDir, '..', 'malhas') : null, fetchImpl = fetch }) {
+  // dados da ficha calculados antes (scripts/geo-municipios.mjs), embarcados ao lado da base
+  const lerPre = nome => { try { return dataDir ? JSON.parse(fs.readFileSync(path.join(dataDir, `municipios-${nome}.json`), 'utf8')) : null } catch { return null } }
+  const pre = { relevo: lerPre('relevo')?.itens || null, credito: lerPre('credito') }
+  const fontes = createFontesMunicipio({ fetchImpl, domainError, pre })
+  // limite do município (malha do IBGE embarcada em data/malhas): área, centro e amostras de relevo
+  async function geometriaMunicipio(cod) {
+    if (!malhasDir) return null   // sem a malha embarcada (testes): a ficha sai sem a área do município
+    const malha = await municipalityMesh('RS', { bundledDir: malhasDir, fetchImpl })
+    return malha.features.find(f => f.properties.code === cod)?.geometry || null
+  }
   let base = null, carregando = null
   const CELULA = 0.05   // grade de ~5 km para busca por janela do mapa
   const arquivos = () => (dataDir
@@ -439,6 +451,63 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
     return (b.panorama = [...m.values()])
   }
 
+  // Ficha do município, parte local (sem rede): território em hectares, porte, situação do CAR e o quadro
+  // socioambiental somado dos imóveis (embargos, terras indígenas, unidades de conservação, supressão por ano).
+  // Áreas socioambientais são as que caem DENTRO de imóveis do CAR: cadastros sobrepostos podem contar duas vezes.
+  function fichaMunicipio(cod) {
+    const b = carregar(), nome = b.cab.municipios[cod]
+    if (!nome) return null
+    b.fichas ||= new Map()
+    if (b.fichas.has(cod)) return b.fichas.get(cod)
+    const r1 = v => Math.round(v * 10) / 10
+    const t = { car: 0, carHa: 0, consolidadaHa: 0, lavouraHa: 0, sigef: 0, sigefHa: 0, assentamentos: 0 }
+    const situacao = new Map(), portes = {}, em = new Map(), ti = new Map(), uc = new Map(), desm = new Map()
+    const comAlgo = { embargo: 0, ti: 0, uc: 0, supressao: 0, critico: 0, atencao: 0 }
+    for (const r of b.imoveis) {
+      if (r.mun !== cod) continue
+      if (r.f !== 'CAR') { t.sigef++; t.sigefHa += r.a || 0; continue }
+      t.car++; t.carHa += r.a || 0; t.consolidadaHa += r.ac || 0; t.lavouraHa += r.lav || 0
+      if (r.tp === 'AST') t.assentamentos++
+      situacao.set(r.st || 'Sem informação', (situacao.get(r.st || 'Sem informação') || 0) + 1)
+      const c = porte(modulosDe(r))?.classe || 'sem'
+      portes[c] ||= { imoveis: 0, areaHa: 0 }; portes[c].imoveis++; portes[c].areaHa += r.a || 0
+      if (r.risco?.nivel === 'critico') comAlgo.critico++; else if (r.risco?.nivel === 'atencao') comAlgo.atencao++
+      const sa = r.sa; if (!sa) continue
+      if (sa.em) comAlgo.embargo++
+      for (const [orgao, numero, data, ha, st, des] of sa.em || []) {
+        const k = `${orgao}|${numero}`, x = em.get(k) || { orgao, numero, data, situacao: st || '', desembargado: /^(s|sim|desembargad)/i.test(String(des || '').trim()), haNosImoveis: 0, imoveis: 0 }
+        x.haNosImoveis += ha; x.imoveis++; em.set(k, x)
+      }
+      if (sa.ti) comAlgo.ti++
+      for (const [n, ha, fase] of sa.ti || []) { const x = ti.get(n) || { nome: n, fase, ha: 0, imoveis: 0 }; x.ha += ha; x.imoveis++; ti.set(n, x) }
+      if (sa.uc) comAlgo.uc++
+      for (const [n, ha, grupo, esfera, cat] of sa.uc || []) { const x = uc.get(n) || { nome: n, grupo, esfera, categoria: cat, ha: 0, imoveis: 0 }; x.ha += ha; x.imoveis++; uc.set(n, x) }
+      if (sa.d) comAlgo.supressao++
+      for (const [ano, ha] of sa.d || []) { const x = desm.get(ano) || { ano, ha: 0, imoveis: 0 }; x.ha += ha; x.imoveis++; desm.set(ano, x) }
+    }
+    for (const v of Object.values(portes)) v.areaHa = Math.round(v.areaHa)
+    const embargos = [...em.values()].map(x => ({ ...x, haNosImoveis: r1(x.haNosImoveis) })).sort((x, y) => x.desembargado - y.desembargado || String(y.data).localeCompare(String(x.data)))
+    const supressao = [...desm.values()].map(x => ({ ...x, ha: r1(x.ha) })).sort((x, y) => y.ano - x.ano)
+    const somaHa = (lista, f = x => x.ha) => r1(lista.reduce((s, x) => s + f(x), 0))
+    const f = {
+      codigoIbge: cod, municipio: nome, moduloFiscalHa: b.moduloHa[cod] || null,
+      territorio: { imoveisCar: t.car, areaCarHa: Math.round(t.carHa), areaConsolidadaHa: Math.round(t.consolidadaHa), lavouraEstimadaHa: Math.round(t.lavouraHa),
+        parcelasSigef: t.sigef, areaSigefHa: Math.round(t.sigefHa), assentamentos: t.assentamentos, lavouraVeraoIbgeHa: Math.round(b.mercado[nome]?.verao || 0) },
+      portes,
+      situacaoCar: [...situacao].map(([situacao, imoveis]) => ({ situacao, imoveis })).sort((x, y) => y.imoveis - x.imoveis),
+      socioambiental: {
+        imoveisCritico: comAlgo.critico, imoveisAtencao: comAlgo.atencao,
+        embargos: { imoveis: comAlgo.embargo, ativos: embargos.filter(x => !x.desembargado).length, desembargados: embargos.filter(x => x.desembargado).length, haNosImoveis: somaHa(embargos, x => x.haNosImoveis), lista: embargos.slice(0, 30) },
+        terrasIndigenas: { imoveis: comAlgo.ti, lista: [...ti.values()].map(x => ({ ...x, ha: r1(x.ha) })).sort((x, y) => y.ha - x.ha) },
+        unidadesConservacao: { imoveis: comAlgo.uc, lista: [...uc.values()].map(x => ({ ...x, ha: r1(x.ha) })).sort((x, y) => y.ha - x.ha) },
+        supressao: { imoveis: comAlgo.supressao, depoisDe2020Ha: somaHa(supressao.filter(x => x.ano >= 2021)), de2009a2020Ha: somaHa(supressao.filter(x => x.ano >= 2009 && x.ano <= 2020)), porAno: supressao }
+      },
+      camadas: b.cab.camadas || null
+    }
+    b.fichas.set(cod, f)
+    return f
+  }
+
   // --- rotas /api/geo/... (todas exigem sessão, como o resto da API) -------------------------
   async function handle({ request, response, url, segments, json, readBody }) {
     const method = request.method, rota = segments[2] || '', id = segments[3] ? decodeURIComponent(segments[3]) : ''
@@ -451,6 +520,27 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
       const b = carregar(), vinc = new Map()
       for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r) { if (!vinc.has(r.mun)) vinc.set(r.mun, new Set()); vinc.get(r.mun).add(r.id) } }
       return json(response, 200, { regiao: b.cab.regiao, itens: panorama().map(x => ({ ...x, imoveisVinculados: vinc.get(x.codigoIbge)?.size || 0 })) })
+    }
+    // ficha do município: a parte local responde na hora; as de fora (culturas, chuva, relevo) vêm em rotas próprias
+    if (rota === 'municipio' && method === 'GET' && id) {
+      const b = carregar(), cod = codigoDe(b, id)
+      if (!b.cab.municipios[cod]) throw domainError('Município fora da base.', 404)
+      const parte = segments[4] || ''
+      if (!parte) {
+        const f = fichaMunicipio(cod), g = await geometriaMunicipio(cod).catch(() => null)
+        const vinc = new Set(); for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r?.mun === cod) vinc.add(r.id) }
+        const areaMun = g ? Math.round(areaHa(g)) : null
+        return json(response, 200, { ...f, territorio: { ...f.territorio, areaMunicipioHa: areaMun, carSobreMunicipioPct: areaMun ? Math.round(f.territorio.areaCarHa / areaMun * 1000) / 10 : null }, imoveisVinculados: vinc.size })
+      }
+      if (parte === 'culturas') return json(response, 200, await fontes.culturas(cod), { 'Cache-Control': 'private, max-age=3600' })
+      if (parte === 'embargos') return json(response, 200, await fontes.embargos(cod), { 'Cache-Control': 'private, max-age=1800' })
+      if (parte === 'credito') return json(response, 200, await fontes.credito(cod), { 'Cache-Control': 'private, max-age=3600' })
+      if (parte === 'chuva' || parte === 'relevo') {
+        const g = await geometriaMunicipio(cod).catch(() => null)
+        if (!g) throw domainError('Limite do município indisponível agora.', 503)
+        return json(response, 200, await fontes[parte](cod, g), { 'Cache-Control': `private, max-age=${parte === 'relevo' ? 86400 : 1800}` })
+      }
+      throw domainError('Parte da ficha desconhecida.', 404)
     }
     if (rota === 'municipios' && method === 'GET') {
       const b = carregar(), pan = new Map(panorama().map(x => [x.codigoIbge, x]))

@@ -667,7 +667,7 @@ function pointInFeature(lat,lng,feature){
 }
 const municipalitySlug=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
 const meshCache={}
-const loadMesh=uf=>meshCache[uf]||(meshCache[uf]=api(`/api/malhas/${encodeURIComponent(uf)}`).catch(error=>{delete meshCache[uf];throw error}))
+const loadMesh=uf=>meshCache[uf]||(meshCache[uf]=api(`/api/malhas/${encodeURIComponent(uf)}?v=2`).catch(error=>{delete meshCache[uf];throw error}))
 const choropleth=['#e6f4ee','#b9e3d1','#7fcbae','#3fae88','#0f8a66','#0e3530']
 // Desenha os limites municipais nas UFs presentes e pinta os municípios que têm produtores pelo potencial.
 // Painel próprio abaixo dos produtores (zIndex 350 < 400 do overlayPane): os limites nunca cobrem os pins.

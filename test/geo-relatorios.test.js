@@ -143,3 +143,30 @@ test('panorama do estado: contagens, área, alertas, potencial do IBGE e víncul
   const mun = (await chamar(geo, 'GET', '/api/geo/municipios')).body.itens[0]   // a rota antiga usa a mesma contagem
   assert.equal(mun.imoveisCar, 2); assert.equal(mun.parcelasSigef, 0)
 })
+
+test('ficha do município: hectares, porte, socioambiental e culturas do IBGE (fonte simulada, com cache)', async () => {
+  const { file, store } = montar()
+  await store.migrate()
+  const SIDRA = [{ V: 'Valor' },
+    { D1C: '4318903', D2C: '8331', D3C: '2025', D4C: '40124', D4N: 'Soja (em grão)', MN: 'Hectares', V: '1000' },
+    { D1C: '4318903', D2C: '112', D3C: '2025', D4C: '40124', D4N: 'Soja (em grão)', MN: 'Quilogramas por Hectare', V: '3000' },
+    { D1C: '4318903', D2C: '112', D3C: '2024', D4C: '40124', D4N: 'Soja (em grão)', MN: 'Quilogramas por Hectare', V: '2000' }]
+  const chamadas = []
+  const fetchImpl = async url => { chamadas.push(String(url)); return { ok: true, status: 200, json: async () => SIDRA } }
+  const geo = createGeoIntel({ dataFile: file, store, domainError, fetchImpl })
+  const f = (await chamar(geo, 'GET', '/api/geo/municipio/4318903')).body
+  assert.equal(f.municipio, 'São Luiz Gonzaga')
+  assert.equal(f.territorio.imoveisCar, 2); assert.equal(f.territorio.areaCarHa, 660); assert.equal(f.territorio.areaConsolidadaHa, 550)
+  assert.equal(f.territorio.areaMunicipioHa, null)                       // sem malha embarcada no teste
+  assert.equal(f.portes.grande.imoveis, 1); assert.equal(f.portes.pequeno.imoveis, 1)
+  assert.equal(f.socioambiental.imoveisCritico, 1)
+  assert.equal(f.socioambiental.supressao.depoisDe2020Ha, 12); assert.equal(f.socioambiental.supressao.porAno[0].ano, 2022)
+  assert.deepEqual(f.situacaoCar, [{ situacao: 'Sem informação', imoveis: 2 }])
+  assert.equal((await chamar(geo, 'GET', `/api/geo/municipio/${encodeURIComponent('São Luiz Gonzaga')}`)).body.codigoIbge, '4318903')   // pelo nome também
+  const c = (await chamar(geo, 'GET', '/api/geo/municipio/4318903/culturas')).body
+  assert.equal(c.ano, 2025); assert.equal(c.itens[0].cultura, 'Soja'); assert.equal(c.itens[0].variacao.rendimentoPct, 50)
+  await chamar(geo, 'GET', '/api/geo/municipio/4318903/culturas')
+  assert.equal(chamadas.length, 1)                                      // a segunda vem do cache
+  assert.match(chamadas[0], /apisidra\.ibge\.gov\.br\/values\/t\/5457\/n6\/4318903\//)
+  await assert.rejects(chamar(geo, 'GET', '/api/geo/municipio/9999999'), e => e.statusCode === 404)
+})

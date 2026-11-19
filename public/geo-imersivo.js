@@ -96,6 +96,11 @@ function montarTela() {
   map.on('movestart zoomstart click', fecharMenu)
   document.addEventListener('keydown', atalhos)
   new MutationObserver(() => setTimeout(() => map.invalidateSize(), 40)).observe(vista, { attributes: true, attributeFilter: ['class'] })
+  // qualquer mudança de tamanho da área do mapa (janela, cabeçalho, monitor) chega ao Leaflet; sem isso as camadas ficam cortadas
+  if (window.ResizeObserver) {
+    let quadro = 0
+    new ResizeObserver(() => { cancelAnimationFrame(quadro); quadro = requestAnimationFrame(() => { const c = map.getContainer(); if (c.clientWidth && c.clientHeight) map.invalidateSize({ pan: false }) }) }).observe(map.getContainer())
+  }
 }
 
 function painel(abrir, { salvar = true } = {}) {
@@ -305,8 +310,10 @@ async function carregarPanorama() {
   } catch (e) { console.warn('Panorama: malha indisponível', e); return }
   try { const r = await V.api('/api/geo/panorama'); I.pan = r.itens; I.porCodigo = new Map(r.itens.map(x => [x.codigoIbge, x])) } catch (e) { console.warn('Panorama: dados indisponíveis', e); I.pan = [] }
   if (!map.getPane('imPanorama')) { map.createPane('imPanorama'); map.getPane('imPanorama').style.zIndex = 330 }
+  // canvas em vez de SVG: 500 polígonos num quadro só, sem dezenas de camadas para a placa de vídeo pintar
   I.camada = L.geoJSON(I.malha, {
     pane: 'imPanorama',
+    renderer: L.canvas({ pane: 'imPanorama', padding: 0.3, tolerance: 2 }),
     style: estiloPan,
     onEachFeature: (f, layer) => {
       I.porCamada.set(f.properties.code, layer)
@@ -315,7 +322,7 @@ async function carregarPanorama() {
       layer.on('mouseout', () => layer.setStyle(estiloPan(f)))
       layer.on('click', e => {
         if (V.state.plan?.active) return   // planejando rota: o clique vai para o mapa (centro da visita)
-        L.DomEvent.stopPropagation(e); voarMunicipio(f.properties.code, { ficha: true, latlng: e.latlng })
+        L.DomEvent.stopPropagation(e); voarMunicipio(f.properties.code, { ficha: true })
       })
     }
   })
@@ -375,7 +382,7 @@ function classe(v) { if (!(v > 0)) return -1; let i = 0; while (i < I.quebras.le
 function opacidade() { const z = V.state.map.getZoom(); return z <= 7 ? .72 : z <= 8 ? .64 : z <= 9 ? .52 : z <= 10 ? .34 : .06 }
 function estiloPan(f) {
   const d = dadosMunicipio(f.properties.code), c = classe(METRICAS[I.metrica].valor(d)), z = V.state.map.getZoom()
-  return { className: 'im-pan-p', color: z >= 11 ? '#071b19' : '#ffffff', weight: z >= 11 ? 1.2 : .8, opacity: z >= 11 ? .35 : .85, fillColor: c < 0 ? SEM_DADO : METRICAS[I.metrica].rampa[c], fillOpacity: c < 0 ? opacidade() * .3 : opacidade() }
+  return { color: z >= 11 ? '#071b19' : '#ffffff', weight: z >= 11 ? 1.2 : .8, opacity: z >= 11 ? .35 : .85, fillColor: c < 0 ? SEM_DADO : METRICAS[I.metrica].rampa[c], fillOpacity: c < 0 ? opacidade() * .3 : opacidade() }
 }
 function dicaMunicipio(p) {
   const d = dadosMunicipio(p.code), met = METRICAS[I.metrica], v = met.valor(d)
@@ -384,6 +391,7 @@ function dicaMunicipio(p) {
 function panorama(on, { salvar = true } = {}) {
   const map = V.state.map
   I.panAtivo = on
+  map.getContainer().classList.toggle('im-com-panorama', on)
   if (salvar) guardar('val-geomap-panorama', on ? '1' : '0')
   if (!I.camada) { desenharCamadas(); return }
   if (on) { pintar(); I.camada.addTo(map); I.legenda.addTo(map); desenharLegenda() } else { map.removeLayer(I.camada); I.legenda.remove() }
@@ -415,15 +423,19 @@ function cliqueLegenda(e) {
   const b = e.target.closest('[data-metrica]')
   if (b) { I.metrica = b.dataset.metrica; guardar('val-geomap-metrica', I.metrica); pintar(); desenharLegenda() }
 }
-// voa até o município e abre a ficha dele
-function voarMunicipio(code, { ficha = false, latlng = null } = {}) {
+// voa até o município; com ficha, abre na hora o painel da direita (que carrega enquanto o mapa voa)
+const painelFechado = () => document.getElementById('view-map').classList.contains('painel-fechado')
+function voarMunicipio(code, { ficha = false } = {}) {
   const map = V.state.map, layer = I.porCamada.get(code); if (!layer) return
-  const b = layer.getBounds()
-  const abrir = () => ficha && fichaMunicipio(code, latlng || pontoDentro(code) || b.getCenter())
-  const esquerda = innerWidth > 900 && !document.getElementById('view-map').classList.contains('painel-fechado') ? 400 : 30
-  if (map.getBounds().contains(b) && map.getZoom() >= map.getBoundsZoom(b, false, L.point(esquerda + 30, 60)) - 1) return abrir()
-  map.once('moveend', () => setTimeout(abrir, 60))
-  map.flyToBounds(b, { paddingTopLeft: L.point(esquerda, 90), paddingBottomRight: L.point(30, 30), duration: 1.2 })
+  if (ficha) abrirFichaMun(code)
+  const b = layer.getBounds(), largo = innerWidth > 900
+  const pTL = L.point(largo && !painelFechado() ? 400 : 24, largo ? 84 : 70)
+  const pBR = L.point(largo && ficha ? 470 : 24, !largo && ficha ? Math.round(innerHeight * 0.58) : 24)
+  const alvoZoom = Math.min(10, map.getBoundsZoom(b, false, pTL.add(pBR)))
+  const px = map.latLngToContainerPoint(b.getCenter()), tam = map.getSize()
+  const dentro = px.x > pTL.x && px.x < tam.x - pBR.x && px.y > pTL.y && px.y < tam.y - pBR.y
+  if (dentro && Math.abs(map.getZoom() - alvoZoom) <= 1) return   // já está à vista: não mexe no mapa
+  map.flyToBounds(b, { paddingTopLeft: pTL, paddingBottomRight: pBR, maxZoom: 10, duration: 1.1 })
 }
 // um ponto dentro do município (o centro da caixa pode cair fora em município de forma irregular)
 function pontoDentro(code) {
@@ -433,44 +445,250 @@ function pontoDentro(code) {
   for (let k = 1; k <= 6; k++) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = c[0] + dx * (l - o) * k / 14, y = c[1] + dy * (n - s) * k / 14; if (municipioNoPonto(y, x)?.code === code) return L.latLng(y, x) }
   return null
 }
-function fichaMunicipio(code, latlng) {
-  const map = V.state.map
+// ---------------------------------------------------------------------------------------------
+// Ficha do município: painel à direita (gaveta de baixo no celular) que carrega por partes.
+// A parte local (hectares, porte, socioambiental) responde na hora; culturas, chuva e relevo vêm de fora.
+// ---------------------------------------------------------------------------------------------
+const SECOES = [
+  { id: 'hectares', rotulo: 'Hectares', titulo: 'Hectares e imóveis' },
+  { id: 'culturas', rotulo: 'Culturas', titulo: 'Culturas na última safra do IBGE' },
+  { id: 'credito', rotulo: 'Crédito', titulo: 'Crédito rural e garantias' },
+  { id: 'chuva', rotulo: 'Chuva', titulo: 'Chuva nos últimos meses' },
+  { id: 'relevo', rotulo: 'Relevo', titulo: 'Relevo' },
+  { id: 'ambiental', rotulo: 'Socioambiental', titulo: 'Socioambiental dos imóveis do CAR' },
+  { id: 'embargos', rotulo: 'Embargos', titulo: 'Áreas embargadas no município' }
+]
+const PARTES = { '': ['hectares', 'ambiental'], culturas: ['culturas'], credito: ['credito'], chuva: ['chuva'], relevo: ['relevo'], embargos: ['embargos'] }
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const rotMes = k => { const [a, m] = String(k).split('-'); return `${MESES[Number(m) - 1]}/${a.slice(2)}` }
+const pct = (v, d = 0) => (v == null ? '—' : `${v > 0 ? '+' : ''}${fmt(v, d)}%`)
+const dataBr = s => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '')
+const produtoresDe = nome => (V.state.data?.producers || []).filter(p => (!p.uf || p.uf === 'RS') && norm(p.municipality) === norm(nome))
+
+function gavetaMun() {
+  let el = document.getElementById('im-fm')
+  if (el) return el
+  el = document.createElement('aside')
+  el.id = 'im-fm'; el.className = 'im-fm'; el.hidden = true; el.tabIndex = -1
+  el.setAttribute('aria-label', 'Ficha do município')
+  document.getElementById('view-map').append(el)
+  L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el)
+  el.addEventListener('click', cliqueFichaMun)
+  // o cartão do produtor e a ficha do município ocupam o mesmo lado da tela: um fecha o outro
+  const det = document.getElementById('detail')
+  if (det) new MutationObserver(() => { if (!det.hidden) fecharFichaMun() }).observe(det, { attributes: true, attributeFilter: ['hidden'] })
+  return el
+}
+function abrirFichaMun(code) {
   I.cart ||= carteira()
   const d = dadosMunicipio(code); if (!d) return
-  const prods = (V.state.data?.producers || []).filter(p => (!p.uf || p.uf === 'RS') && norm(p.municipality) === norm(d.municipio))
-  const pctCrit = d.car ? d.criticos / d.car * 100 : 0
-  const el = document.createElement('div'); el.className = 'im-mun'
-  el.innerHTML = `
-    <div class="im-mun-topo"><span>Município · RS</span><b>${esc(d.municipio)}</b></div>
-    <div class="im-mun-kpis">
+  const el = gavetaMun(), seq = (I.fmSeq = (I.fmSeq || 0) + 1)
+  I.fmCod = code
+  const det = document.getElementById('detail'); if (det && !det.hidden) det.hidden = true
+  V.state.map.closePopup(); fecharMenu()
+  el.innerHTML = htmlTopoMun(d)
+  el.hidden = false; el.scrollTop = 0
+  document.getElementById('view-map').classList.add('com-ficha')
+  realcarMunicipio(code)
+  for (const parte of Object.keys(PARTES)) carregarParteMun(code, parte, seq)
+}
+function fecharFichaMun() {
+  const el = document.getElementById('im-fm'); if (!el || el.hidden) return
+  el.hidden = true; I.fmCod = null; I.fmSeq = (I.fmSeq || 0) + 1
+  document.getElementById('view-map').classList.remove('com-ficha')
+  I.realce?.remove(); I.realce = null
+}
+// contorno do município escolhido, por cima do panorama
+function realcarMunicipio(code) {
+  I.realce?.remove()
+  const f = I.feiPorCod.get(code); if (!f) return
+  I.realce = L.geoJSON(f.feature, { interactive: false, style: { color: '#c8f25e', weight: 3.5, opacity: 1, fill: false } }).addTo(V.state.map)
+}
+const esqueleto = () => '<div class="im-fm-esq" aria-hidden="true"><i></i><i></i><i></i></div><span class="im-fm-carregando">Carregando…</span>'
+function htmlTopoMun(d) {
+  const prods = produtoresDe(d.municipio), pctCrit = d.car ? d.criticos / d.car * 100 : 0
+  return `
+    <header class="im-fm-topo">
+      <div><span>Município · RS · IBGE ${esc(d.codigoIbge || '')}</span><h2>${esc(d.municipio)}</h2></div>
+      <button type="button" class="im-fm-x" data-fm-fechar title="Fechar (Esc)" aria-label="Fechar a ficha do município">${ICO.fechar}</button>
+    </header>
+    <nav class="im-fm-nav" aria-label="Seções da ficha">${SECOES.map(s => `<button type="button" data-fm-ir="${s.id}">${s.rotulo}</button>`).join('')}</nav>
+    <div class="im-fm-kpis">
       <div><span>Potencial ano bom</span><b>${d.potencialAnoBomT ? abrev(d.potencialAnoBomT) : '—'}</b><small>${d.potencialMediaT ? `média com secas: ${abrev(d.potencialMediaT)}` : 'IBGE PAM'}</small></div>
       <div><span>Lavoura de verão</span><b>${d.lavouraVeraoHa ? `${fmt(d.lavouraVeraoHa)} ha` : '—'}</b><small>soja + milho (IBGE)</small></div>
       <div><span>Imóveis</span><b>${fmt(d.car)} no CAR</b><small>${fmt(d.sigef)} parcelas SIGEF${d.moduloFiscalHa ? ` · MF ${fmt(d.moduloFiscalHa)} ha` : ''}</small></div>
       <div class="${d.criticos ? 'risco' : ''}"><span>Alerta crítico</span><b>${fmt(d.criticos)}</b><small>${d.car ? `${fmt(pctCrit, pctCrit < 10 ? 1 : 0)}% dos imóveis do CAR` : '—'}${d.atencao ? ` · ${fmt(d.atencao)} em atenção` : ''}</small></div>
     </div>
-    <div class="im-mun-cart"><b>Carteira do VAL</b>${prods.length ? `<span>${prods.slice(0, 4).map(p => `<a href="#" data-detail="${esc(p.id)}">${esc(p.name)}</a>`).join(', ')}${prods.length > 4 ? ` e mais ${prods.length - 4}` : ''}</span>` : '<span>Nenhum produtor cadastrado aqui.</span>'}${d.imoveisVinculados ? `<small>${fmt(d.imoveisVinculados)} imóve${d.imoveisVinculados === 1 ? 'l vinculado' : 'is vinculados'}</small>` : ''}</div>
+    <div class="im-fm-cart"><b>Carteira do VAL</b>${prods.length ? `<span>${prods.slice(0, 6).map(p => `<a href="#" data-detail="${esc(p.id)}">${esc(p.name)}</a>`).join(', ')}${prods.length > 6 ? ` e mais ${prods.length - 6}` : ''}</span>` : '<span>Nenhum produtor cadastrado aqui.</span>'}${d.imoveisVinculados ? `<small>${fmt(d.imoveisVinculados)} imóve${d.imoveisVinculados === 1 ? 'l vinculado' : 'is vinculados'}</small>` : ''}</div>
     <div class="gf-acoes">
-      <button type="button" class="btn small primary" data-m-imoveis>Ver imóveis</button>
+      <button type="button" class="btn small primary" data-m-imoveis>Ver imóveis no mapa</button>
       <button type="button" class="btn small" data-m-nomes>Buscar nomes aqui</button>
       <button type="button" class="btn small ghost" data-m-rel>Relatório</button>
-    </div>`
-  el.addEventListener('click', e => {
-    if (e.target.closest('[data-m-rel]')) return window.open(`/relatorio.html?municipio=${encodeURIComponent(d.municipio)}`, '_blank', 'noopener')
-    if (e.target.closest('[data-m-imoveis]')) {
-      map.closePopup(); window.valGeo.ligarCamada(true)
-      map.flyTo(latlng, Math.max(12, map.getZoom()), { duration: 1.1 }); return
-    }
-    if (e.target.closest('[data-m-nomes]')) {
-      map.closePopup()
-      const sel = document.getElementById('geo-mun'); if (sel && [...sel.options].some(o => o.value === d.municipio)) sel.value = d.municipio
-      window.dispatchEvent(new CustomEvent('geo:painel', { detail: { abrir: true, alvo: 'geo-block' } }))
-      setTimeout(() => document.getElementById('geo-q')?.focus(), 380)
-    }
-  })
-  L.DomEvent.disableScrollPropagation(el)
-  const esquerda = innerWidth > 900 && !document.getElementById('view-map').classList.contains('painel-fechado') ? 400 : 20
-  L.popup({ className: 'geo-ficha-pop im-mun-pop', maxWidth: 360, minWidth: 300, autoPanPaddingTopLeft: L.point(esquerda, 80), autoPanPaddingBottomRight: L.point(30, 30) }).setLatLng(latlng).setContent(el).openOn(map)
+    </div>
+    ${SECOES.map(s => `<section class="im-fm-sec" id="fm-${s.id}" aria-busy="true"><h3>${s.titulo}</h3><div class="im-fm-corpo" data-fm-corpo="${s.id}">${esqueleto()}</div></section>`).join('')}`
 }
+async function carregarParteMun(code, parte, seq) {
+  const alvos = PARTES[parte]
+  const pintar = (id, html) => { const c = document.querySelector(`[data-fm-corpo="${id}"]`); if (!c) return; c.innerHTML = html; c.parentElement.setAttribute('aria-busy', 'false') }
+  alvos.forEach(id => { const c = document.querySelector(`[data-fm-corpo="${id}"]`); if (c) { c.innerHTML = esqueleto(); c.parentElement.setAttribute('aria-busy', 'true') } })
+  try {
+    const r = await V.api(`/api/geo/municipio/${encodeURIComponent(code)}${parte ? `/${parte}` : ''}`)
+    if (I.fmSeq !== seq) return
+    if (!parte) { pintar('hectares', htmlHectares(r)); pintar('ambiental', htmlAmbiental(r)) } else pintar(parte, RENDER[parte](r))
+  } catch (e) {
+    if (I.fmSeq !== seq) return
+    alvos.forEach(id => pintar(id, `<div class="im-fm-erro"><span>${esc(e.message || 'Não foi possível carregar agora.')}</span><button type="button" class="btn small" data-fm-repetir="${parte || 'local'}">Tentar de novo</button></div>`))
+  }
+}
+function cliqueFichaMun(e) {
+  const code = I.fmCod, d = code && dadosMunicipio(code), map = V.state.map
+  if (e.target.closest('[data-fm-fechar]')) return fecharFichaMun()
+  const ir = e.target.closest('[data-fm-ir]')
+  if (ir) { document.getElementById(`fm-${ir.dataset.fmIr}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
+  const rep = e.target.closest('[data-fm-repetir]')
+  if (rep) return carregarParteMun(code, rep.dataset.fmRepetir === 'local' ? '' : rep.dataset.fmRepetir, I.fmSeq)
+  if (!d) return
+  if (e.target.closest('[data-m-rel]')) return window.open(`/relatorio.html?municipio=${encodeURIComponent(d.municipio)}`, '_blank', 'noopener')
+  if (e.target.closest('[data-m-imoveis]')) {
+    window.valGeo.ligarCamada(true)
+    const p = pontoDentro(code) || I.porCamada.get(code)?.getBounds().getCenter()
+    if (p) map.flyTo(p, Math.max(12, map.getZoom()), { duration: 1.1 })
+    if (innerWidth <= 900) fecharFichaMun()
+    return
+  }
+  if (e.target.closest('[data-m-nomes]')) {
+    const sel = document.getElementById('geo-mun'); if (sel && [...sel.options].some(o => o.value === d.municipio)) sel.value = d.municipio
+    window.dispatchEvent(new CustomEvent('geo:painel', { detail: { abrir: true, alvo: 'geo-block' } }))
+    if (innerWidth <= 900) fecharFichaMun()
+    setTimeout(() => document.getElementById('geo-q')?.focus(), 380)
+  }
+}
+
+// --- seções -----------------------------------------------------------------------------------
+const linhaFm = (rotulo, valor, sub = '') => `<div class="im-fm-linha"><span>${rotulo}${sub ? `<small>${sub}</small>` : ''}</span><b>${valor}</b></div>`
+const fonteFm = txt => `<p class="im-fm-fonte">${txt}</p>`
+const PORTES = [
+  { k: 'minifundio', rotulo: 'Minifúndio', sub: 'menos de 1 MF', cor: '#cfe9dc' }, { k: 'pequeno', rotulo: 'Pequeno', sub: '1 a 4 MF', cor: '#8fd0b2' },
+  { k: 'medio', rotulo: 'Médio', sub: '4 a 15 MF', cor: '#3fae88' }, { k: 'grande', rotulo: 'Grande', sub: 'mais de 15 MF', cor: '#0e6b4f' }
+]
+function htmlHectares(r) {
+  const t = r.territorio
+  const portes = PORTES.map(p => ({ ...p, ...(r.portes?.[p.k] || { imoveis: 0, areaHa: 0 }) })), totHa = portes.reduce((s, p) => s + p.areaHa, 0)
+  const barra = totHa ? `<div class="im-fm-pilha" role="img" aria-label="Área do CAR por porte">${portes.filter(p => p.areaHa > 0).map(p => `<i style="flex:${p.areaHa};background:${p.cor}" title="${esc(`${p.rotulo}: ${fmt(p.areaHa)} ha (${fmt(p.areaHa / totHa * 100, 0)}%)`)}"></i>`).join('')}</div>` : ''
+  return `
+    ${linhaFm('Área do município', t.areaMunicipioHa ? `${fmt(t.areaMunicipioHa)} ha` : '—', 'limite oficial do IBGE')}
+    ${linhaFm('Cadastrada no CAR', `${fmt(t.areaCarHa)} ha`, `${fmt(t.imoveisCar)} imóveis${t.carSobreMunicipioPct != null ? ` · ${fmt(t.carSobreMunicipioPct, 0)}% da área do município${t.carSobreMunicipioPct > 100 ? ' (há cadastros sobrepostos)' : ''}` : ''}`)}
+    ${linhaFm('Área consolidada declarada', `${fmt(t.areaConsolidadaHa)} ha`, 'uso agropecuário anterior a 22/07/2008, declarado no CAR')}
+    ${linhaFm('Lavoura estimada nos imóveis', `${fmt(t.lavouraEstimadaHa)} ha`, `calibrada pela lavoura de verão do IBGE (${fmt(t.lavouraVeraoIbgeHa)} ha)`)}
+    ${linhaFm('Certificada no SIGEF (INCRA)', `${fmt(t.areaSigefHa)} ha`, `${fmt(t.parcelasSigef)} parcelas`)}
+    ${t.assentamentos ? linhaFm('Assentamentos no CAR', fmt(t.assentamentos), 'cadastros do tipo AST') : ''}
+    ${totHa ? `<h4>Porte dos imóveis do CAR${r.moduloFiscalHa ? ` · módulo fiscal de ${fmt(r.moduloFiscalHa)} ha` : ''}</h4>${barra}
+      <div class="im-fm-tabela im-fm-portes">${portes.map(p => `<div><i style="background:${p.cor}"></i><span>${p.rotulo}<small>${p.sub}</small></span><b>${fmt(p.imoveis)}</b><b>${fmt(p.areaHa)} ha</b><b>${totHa ? fmt(p.areaHa / totHa * 100, 0) : 0}%</b></div>`).join('')}</div>` : ''}
+    ${fonteFm('SICAR (CAR), INCRA (SIGEF) e IBGE. Porte pela Lei 8.629/93, em módulos fiscais (MF).')}`
+}
+const GRAOS_60 = /^(soja|milho|trigo|feij[aã]o|sorgo|cevada|aveia|triticale|canola|girassol)/i
+function rendimento(c) {
+  const kg = c.atual.rendimentoKgHa; if (!kg) return '—'
+  if (GRAOS_60.test(c.cultura)) return `${fmt(kg / 60, 1)} sc/ha`
+  if (/^arroz/i.test(c.cultura)) return `${fmt(kg / 50, 0)} sc/ha`   // arroz no RS: saca de 50 kg
+  return `${fmt(kg)} kg/ha`
+}
+function htmlCulturas(r) {
+  if (!r.itens?.length) return `<p class="im-fm-vazio">O IBGE não registra lavouras neste município.</p>${fonteFm(esc(r.fonte || 'IBGE PAM'))}`
+  const linha = c => `<tr><th scope="row">${esc(c.cultura)}</th><td>${fmt(c.atual.areaPlantadaHa)}</td><td>${c.atual.producao ? `${fmt(c.atual.producao)}${/tonelada/i.test(c.unidade) ? '' : ` <small>${esc(c.unidade)}</small>`}` : '—'}</td><td>${rendimento(c)}</td><td class="${c.variacao.rendimentoPct < 0 ? 'neg' : c.variacao.rendimentoPct > 0 ? 'pos' : ''}">${pct(c.variacao.rendimentoPct)}</td><td>${c.atual.valorMilReais ? fmt(c.atual.valorMilReais / 1000, 1) : '—'}</td></tr>`
+  const cab = `<thead><tr><th scope="col">Cultura</th><th scope="col">Área (ha)</th><th scope="col">Produção (t)</th><th scope="col">Rendimento</th><th scope="col" title="Rendimento comparado com ${r.anoAnterior}">vs ${r.anoAnterior || '—'}</th><th scope="col">R$ mi</th></tr></thead>`
+  const prim = r.itens.slice(0, 7), resto = r.itens.slice(7)
+  return `
+    <p class="im-fm-lead">Safra <b>${r.ano}</b>: ${fmt(r.totais.areaPlantadaHa)} ha plantados, <b>R$ ${fmt(r.totais.valorMilReais / 1000, 0)} milhões</b> em produção.</p>
+    <div class="im-fm-rolar"><table class="im-fm-tab">${cab}<tbody>${prim.map(linha).join('')}</tbody></table></div>
+    ${resto.length ? `<details class="im-fm-mais"><summary>Ver as outras ${resto.length} culturas</summary><div class="im-fm-rolar"><table class="im-fm-tab">${cab}<tbody>${resto.map(linha).join('')}</tbody></table></div></details>` : ''}
+    ${fonteFm(`${esc(r.fonte)}. Ano ${r.ano}, o mais recente publicado; variação do rendimento contra ${r.anoAnterior}. Sacas de 60 kg (arroz: 50 kg).`)}`
+}
+function htmlAmbiental(r) {
+  const s = r.socioambiental, em = s.embargos
+  const lista = (itens, f) => (itens.length ? `<ul class="im-fm-lista">${itens.map(f).join('')}</ul>` : '')
+  const anos = s.supressao.porAno.filter(x => x.ano >= 2009).sort((a, b) => a.ano - b.ano)
+  const maxHa = Math.max(1, ...anos.map(x => x.ha))
+  const barrasAno = anos.length ? `<div class="im-fm-anos" role="img" aria-label="Supressão de vegetação nativa por ano, em hectares">${anos.map(x => `<div title="${esc(`${x.ano}: ${fmt(x.ha, 1)} ha em ${fmt(x.imoveis)} imóve${x.imoveis === 1 ? 'l' : 'is'}`)}" class="${x.ano >= 2021 ? 'eudr' : ''}"><i style="height:${Math.max(4, x.ha / maxHa * 100)}%"></i><small>${String(x.ano).slice(2)}</small></div>`).join('')}</div>` : ''
+  const sit = r.situacaoCar.slice(0, 5), totCar = r.situacaoCar.reduce((a, x) => a + x.imoveis, 0)
+  return `
+    <div class="im-fm-kpis dois">
+      <div class="${s.imoveisCritico ? 'risco' : ''}"><span>Alerta crítico</span><b>${fmt(s.imoveisCritico)}</b><small>imóveis do CAR</small></div>
+      <div class="${s.imoveisAtencao ? 'atencao' : ''}"><span>Em atenção</span><b>${fmt(s.imoveisAtencao)}</b><small>imóveis do CAR</small></div>
+    </div>
+    <h4>Áreas embargadas</h4>
+    ${em.ativos + em.desembargados ? `<p class="im-fm-lead"><b>${fmt(em.ativos)}</b> embargo${em.ativos === 1 ? '' : 's'} em vigor e ${fmt(em.desembargados)} já desembargado${em.desembargados === 1 ? '' : 's'}, sobre ${fmt(em.imoveis)} imóve${em.imoveis === 1 ? 'l' : 'is'} do CAR (${fmt(em.haNosImoveis, 1)} ha dentro deles).</p>
+      ${lista(em.lista.slice(0, 8), x => `<li><span class="badge ${x.desembargado ? '' : 'risco-critico'}">${x.desembargado ? 'desembargado' : 'em vigor'}</span><span>${esc(x.orgao)} nº ${esc(x.numero)}${x.data ? ` · ${dataBr(x.data)}` : ''}${x.situacao ? ` · ${esc(x.situacao.toLowerCase())}` : ''}</span><b>${fmt(x.haNosImoveis, 1)} ha</b></li>`)}
+      ${em.lista.length > 8 ? `<p class="im-fm-nota">E mais ${em.lista.length - 8}. A lista completa está no relatório do município.</p>` : ''}` : '<p class="im-fm-vazio">Nenhum embargo do IBAMA sobre imóveis do CAR deste município.</p>'}
+    <h4>Supressão de vegetação nativa (PRODES)</h4>
+    ${anos.length ? `<p class="im-fm-lead"><b>${fmt(s.supressao.depoisDe2020Ha, 1)} ha</b> depois de 2020 (corte do EUDR) e ${fmt(s.supressao.de2009a2020Ha, 1)} ha de 2009 a 2020, em ${fmt(s.supressao.imoveis)} imóve${s.supressao.imoveis === 1 ? 'l' : 'is'}.</p>${barrasAno}<p class="im-fm-legenda"><i class="eudr"></i>depois de 2020 <i></i>2009 a 2020</p>` : '<p class="im-fm-vazio">Nenhuma supressão mapeada pelo PRODES dentro dos imóveis do CAR.</p>'}
+    ${s.terrasIndigenas.lista.length || s.unidadesConservacao.lista.length ? `<h4>Terras indígenas e unidades de conservação</h4>
+      ${lista(s.terrasIndigenas.lista, x => `<li><span class="badge risco-critico">TI</span><span>${esc(x.nome)}${x.fase ? ` · ${esc(x.fase.toLowerCase())}` : ''}</span><b>${fmt(x.ha, 1)} ha</b></li>`)}
+      ${lista(s.unidadesConservacao.lista, x => `<li><span class="badge ${String(x.grupo).toUpperCase() === 'PI' ? 'risco-critico' : 'risco-atencao'}">${String(x.grupo).toUpperCase() === 'PI' ? 'UC integral' : 'UC uso sust.'}</span><span>${esc(x.nome)}</span><b>${fmt(x.ha, 1)} ha</b></li>`)}` : ''}
+    <h4>Situação do CAR</h4>
+    <div class="im-fm-tabela im-fm-sit">${sit.map(x => `<div><span>${esc(x.situacao)}</span><b>${fmt(x.imoveis)}</b><b>${fmt(x.imoveis / totCar * 100, x.imoveis / totCar < 0.01 ? 1 : 0)}%</b></div>`).join('')}</div>
+    ${fonteFm(`Áreas dentro de imóveis do CAR (cadastros sobrepostos podem contar duas vezes). ${esc((r.camadas?.fontes || []).join(' · '))}. Triagem automática: confirme nas listas oficiais no dia da negociação.`)}`
+}
+const RENDER = { culturas: htmlCulturas, chuva: r => htmlChuva(r), relevo: r => htmlRelevo(r), credito: r => htmlCredito(r), embargos: r => htmlEmbargos(r) }
+function htmlChuva(r) {
+  const meses = r.meses || []
+  const max = Math.max(1, ...meses.map(x => Math.max(x.mm || 0, x.normalMm || 0)))
+  const janela = (rot, j) => (j ? `<div class="${j.desvioPct <= -25 ? 'seco' : j.desvioPct >= 25 ? 'umido' : ''}"><span>${rot}</span><b>${fmt(j.mm)} mm</b><small>${j.normalMm ? `normal ${fmt(j.normalMm)} mm · ${pct(j.desvioPct)}` : 'sem normal'}</small></div>` : '')
+  const colunas = meses.map(x => {
+    const t = `${rotMes(x.mes)}: ${x.mm == null ? 'sem dado' : `${fmt(x.mm)} mm${x.completo ? '' : ` até agora (${x.dias} de ${x.diasNoMes} dias)`}`}${x.normalMm ? ` · normal ${fmt(x.normalMm)} mm` : ''}${x.desvioPct != null ? ` (${pct(x.desvioPct)})` : ''}${x.maiorChuvaDiaMm ? ` · maior chuva num dia: ${fmt(x.maiorChuvaDiaMm)} mm` : ''}`
+    return `<div class="im-fm-col ${x.completo ? '' : 'parcial'} ${x.desvioPct != null && x.desvioPct <= -40 ? 'seco' : ''}" title="${esc(t)}" tabindex="0" aria-label="${esc(t)}">
+      <div class="im-fm-col-area"><i class="bar" style="height:${x.mm ? Math.max(2, x.mm / max * 100) : 0}%"></i>${x.normalMm ? `<i class="normal" style="bottom:${x.normalMm / max * 100}%"></i>` : ''}</div><small>${MESES[Number(x.mes.slice(5)) - 1]}</small></div>`
+  }).join('')
+  return `
+    <div class="im-fm-kpis tres">${janela('Últimos 3 meses', r.ultimos3)}${janela('Últimos 6 meses', r.ultimos6)}${janela('Últimos 12 meses', r.ultimos12)}</div>
+    <div class="im-fm-chuva" role="img" aria-label="Chuva mensal dos últimos 13 meses, em milímetros, com a normal de cada mês">${colunas}</div>
+    <p class="im-fm-legenda"><i class="chuva"></i>chuva do mês <i class="normal"></i>normal do mês <i class="parcial"></i>mês em curso</p>
+    ${fonteFm(`${esc(r.fonte || '')}${r.dadosAte ? ` Dados até ${dataBr(r.dadosAte)}.` : ''}`)}`
+}
+const COR_DECL = { plano: '#dcefe5', suave: '#a9d8be', ondulado: '#e9c98f', forte: '#c98a4b', montanhoso: '#8a4f24' }
+function htmlRelevo(r) {
+  if (!r?.altitude) return `<p class="im-fm-vazio">Sem dados de relevo para este município.</p>`
+  const d = r.declividade, a = r.altitude
+  return `
+    <div class="im-fm-kpis tres">
+      <div><span>Altitude média</span><b>${fmt(a.media)} m</b><small>de ${fmt(a.min)} a ${fmt(a.max)} m</small></div>
+      <div><span>Desnível</span><b>${fmt(r.amplitudeM)} m</b><small>80% entre ${fmt(a.p10)} e ${fmt(a.p90)} m</small></div>
+      ${d ? `<div class="${d.mecanizavelPct >= 70 ? 'bom' : d.mecanizavelPct < 40 ? 'atencao' : ''}"><span>Mecanizável</span><b>${fmt(d.mecanizavelPct, 0)}%</b><small>declividade até 12%</small></div>` : ''}
+    </div>
+    ${d ? `<h4>Declividade (classes da Embrapa)</h4>
+      <div class="im-fm-pilha" role="img" aria-label="Distribuição da declividade">${d.classes.filter(c => c.pct > 0).map(c => `<i style="flex:${c.pct};background:${COR_DECL[c.classe]}" title="${esc(`${c.rotulo}: ${fmt(c.pct, 1)}%`)}"></i>`).join('')}</div>
+      <div class="im-fm-tabela im-fm-decl">${d.classes.map((c, i) => `<div><i style="background:${COR_DECL[c.classe]}"></i><span>${c.rotulo}<small>${i === 0 ? 'até 3%' : c.ate ? `${CLASSES_LIM[i - 1]} a ${c.ate}%` : `acima de ${CLASSES_LIM[i - 1]}%`}</small></span><b>${fmt(c.pct, 0)}%</b></div>`).join('')}</div>` : ''}
+    ${fonteFm(`${esc(r.fonte || '')} ${fmt(r.pontos)} pontos amostrados dentro do município; declividade medida entre cada ponto e dois vizinhos a ${fmt(r.distanciaM || 0)} m. É um retrato do município, não de um imóvel.`)}`
+}
+const CLASSES_LIM = [3, 8, 20, 45]
+const GARANTIAS = 'Garantias como penhor, hipoteca, alienação fiduciária e CPR não são públicas por imóvel: ficam nos cartórios de registro de imóveis e nas registradoras de CPR (B3, CERC, CRDC). O custeio registrado no SICOR é o melhor sinal público de lavoura já comprometida com banco ou cooperativa de crédito, porque no custeio agrícola a garantia mais comum é o penhor da própria safra financiada. Não entram CPR, barter nem financiamento de revendas e tradings.'
+const mi = v => `R$ ${fmt(v / 1e6, v >= 1e8 ? 0 : 1)} mi`
+function htmlCredito(r) {
+  const caixa = `<div class="im-fm-aviso"><b>E as garantias?</b><span>${GARANTIAS}</span></div>`
+  if (!r.safras?.length) return `<p class="im-fm-vazio">Nenhum custeio rural registrado no SICOR para este município no período.</p>${caixa}${fonteFm(esc(r.fonte || ''))}`
+  const kpis = r.safras.slice(0, 3).map(s => `<div class="${s.emCurso ? 'parcial' : ''}"><span>Safra ${s.safra}${s.emCurso ? ' · em curso' : ''}</span><b>${fmt(s.areaHa)} ha</b><small>${mi(s.valor)} em custeio${s.emCurso ? ` até ${rotMes(r.dadosAte)}` : ''}</small></div>`).join('')
+  const alvo = r.safras.find(s => !s.emCurso) || r.safras[0]
+  const ag = alvo.produtos.filter(p => p.agricola && p.areaHa > 0)
+  const linha = p => `<tr><th scope="row">${esc(p.produto)}</th><td>${fmt(p.areaHa)}</td><td>${fmt(p.valor / 1e6, 1)}</td><td>${p.financiadaPct == null ? '—' : `${fmt(p.financiadaPct, 0)}%`}</td></tr>`
+  const soja = ag.find(p => /^soja/i.test(p.produto))
+  return `
+    <div class="im-fm-kpis tres">${kpis}</div>
+    ${soja?.financiadaPct != null ? `<p class="im-fm-lead">Na safra ${alvo.safra}, o custeio de soja registrado cobriu <b>${fmt(soja.financiadaPct, 0)}%</b> da área plantada de soja do IBGE (${fmt(soja.areaHa)} de ${fmt(soja.areaPlantadaIbgeHa)} ha).</p>` : ''}
+    ${ag.length ? `<h4>Custeio agrícola na safra ${alvo.safra}</h4>
+      <div class="im-fm-rolar"><table class="im-fm-tab"><thead><tr><th scope="col">Cultura</th><th scope="col">Área (ha)</th><th scope="col">R$ mi</th><th scope="col" title="Área financiada ÷ área plantada do IBGE na mesma safra">% da área</th></tr></thead><tbody>${ag.slice(0, 8).map(linha).join('')}</tbody></table></div>
+      ${ag.length > 8 ? `<p class="im-fm-nota">E mais ${ag.length - 8} culturas.</p>` : ''}` : ''}
+    ${alvo.valorPecuaria ? linhaFm('Custeio pecuário na mesma safra', mi(alvo.valorPecuaria), 'bovinos, leite, aves, suínos e outros') : ''}
+    ${caixa}
+    ${fonteFm(`${esc(r.fonte)}. Safra de julho a junho, pelo mês de emissão do contrato. Dados até ${rotMes(r.dadosAte)}.`)}`
+}
+function htmlEmbargos(r) {
+  if (!r.total) return `<p class="im-fm-vazio">Nenhum embargo do IBAMA registrado neste município.</p>${fonteFm(esc(r.fonte))}`
+  return `
+    <p class="im-fm-lead"><b>${fmt(r.total)}</b> termo${r.total === 1 ? '' : 's'} de embargo do IBAMA no município, somando <b>${fmt(r.areaHa, 1)} ha</b>${r.ultimo ? `; o mais recente em ${dataBr(r.ultimo)}` : ''}${r.primeiro && r.total > 1 ? ` e o mais antigo em ${dataBr(r.primeiro)}` : ''}.</p>
+    ${r.recentes.length ? `<h4>Mais recentes</h4><ul class="im-fm-lista">${r.recentes.slice(0, 8).map(x => `<li><span class="badge">${x.data ? x.data.slice(0, 4) : '—'}</span><span>Termo nº ${esc(x.numero || '—')}${x.data ? ` · ${dataBr(x.data)}` : ''}${x.bioma ? ` · ${esc(x.bioma)}` : ''}</span><b>${fmt(x.areaHa, 1)} ha</b></li>`).join('')}</ul>` : ''}
+    ${fonteFm(`${esc(r.fonte)} Os que caem dentro de imóveis do CAR, com a situação (em vigor ou desembargado), estão em Socioambiental, acima. Confirme na consulta pública do IBAMA no dia da negociação.`)}`
+}
+
 
 // ---------------------------------------------------------------------------------------------
 // Menu do clique direito (toque longo no celular)
@@ -498,7 +716,7 @@ function abrirMenu(e) {
     fecharMenu()
     const acao = b.dataset.menu
     if (acao === 'aqui') { pulso(e.latlng); return oQueTemAqui(e.latlng) }
-    if (acao === 'mun') return fichaMunicipio(f.code, e.latlng)
+    if (acao === 'mun') return voarMunicipio(f.code, { ficha: true })
     if (acao === 'rota') {
       const t = document.getElementById('plan-toggle')
       if (!t.checked) { t.checked = true; t.dispatchEvent(new Event('change')) }
@@ -534,7 +752,12 @@ async function oQueTemAqui(latlng) {
 function atalhos(e) {
   if (V.state.view !== 'map' || e.defaultPrevented) return
   const alvo = e.target, digitando = alvo.closest?.('input, textarea, select, [contenteditable="true"]')
-  if (e.key === 'Escape') { fecharMenu(); fecharSug(); document.querySelector('.im-camadas')?.classList.remove('aberto'); return }
+  if (e.key === 'Escape') {
+    const aberto = I.menu || !document.getElementById('im-sug')?.hidden || document.querySelector('.im-camadas.aberto')
+    fecharMenu(); fecharSug(); document.querySelector('.im-camadas')?.classList.remove('aberto')
+    if (!aberto && !V.state.map._popup) fecharFichaMun()   // nada mais aberto: Esc fecha a ficha do município
+    return
+  }
   if (!document.getElementById('modal').hidden || document.querySelector('.im-tour, .im-ajuda')) return
   if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); return focarBusca() }
   if (digitando || e.ctrlKey || e.metaKey || e.altKey) return
