@@ -210,11 +210,14 @@ export function juntarCabecalhos(cabs) {
 export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer = false, malhasDir = dataDir ? path.join(dataDir, '..', 'malhas') : null, fetchImpl = fetch }) {
   // dados da ficha calculados antes (scripts/geo-municipios.mjs), embarcados ao lado da base
   const lerPre = nome => { try { return dataDir ? JSON.parse(fs.readFileSync(path.join(dataDir, `municipios-${nome}.json`), 'utf8')) : null } catch { return null } }
-  const pre = { relevo: lerPre('relevo')?.itens || null, credito: lerPre('credito') }
+  const pre = { relevo: lerPre('relevo')?.itens || null, credito: lerPre('credito'), estrutura: lerPre('estrutura') }
+  // armazéns de empresas e cooperativas (CONAB), para a camada do mapa (scripts/geo-estrutura.mjs)
+  const armazensPontos = (() => { try { return dataDir ? fs.readFileSync(path.join(dataDir, 'armazens-rs.json'), 'utf8') : null } catch { return null } })()
+  const estruturaDe = cod => pre.estrutura?.itens?.[cod] || null
   const fontes = createFontesMunicipio({ fetchImpl, domainError, pre })
   // limite do município (malha do IBGE embarcada em data/malhas): área, centro e amostras de relevo
   async function geometriaMunicipio(cod) {
-    if (!malhasDir) return null   // sem a malha embarcada (testes): a ficha sai sem a área do município
+    if (!malhasDir || !fs.existsSync(path.join(malhasDir, 'RS.json'))) return null   // sem a malha embarcada (testes): a ficha sai sem a área do município
     const malha = await municipalityMesh('RS', { bundledDir: malhasDir, fetchImpl })
     return malha.features.find(f => f.properties.code === cod)?.geometry || null
   }
@@ -519,7 +522,12 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
     if (rota === 'panorama' && method === 'GET') {
       const b = carregar(), vinc = new Map()
       for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r) { if (!vinc.has(r.mun)) vinc.set(r.mun, new Set()); vinc.get(r.mun).add(r.id) } }
-      return json(response, 200, { regiao: b.cab.regiao, itens: panorama().map(x => ({ ...x, imoveisVinculados: vinc.get(x.codigoIbge)?.size || 0 })) })
+      return json(response, 200, { regiao: b.cab.regiao, itens: panorama().map(x => { const e = estruturaDe(x.codigoIbge); return { ...x, imoveisVinculados: vinc.get(x.codigoIbge)?.size || 0, armazemT: e?.armazens?.capacidadeT || 0, vtnLavouraBoa: e?.vtn?.lavouraBoa || null } }) })
+    }
+    if (rota === 'armazens' && method === 'GET') {
+      if (!armazensPontos) throw domainError('Camada de armazéns não gerada (scripts/geo-estrutura.mjs).', 503)
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, max-age=86400' })
+      return response.end(armazensPontos)
     }
     // ficha do município: a parte local responde na hora; as de fora (culturas, chuva, relevo) vêm em rotas próprias
     if (rota === 'municipio' && method === 'GET' && id) {
@@ -530,7 +538,9 @@ export function createGeoIntel({ dataFile, dataDir, store, domainError, aquecer 
         const f = fichaMunicipio(cod), g = await geometriaMunicipio(cod).catch(() => null)
         const vinc = new Set(); for (const l of await vinculos()) { const r = b.porId.get(l.imovelId); if (r?.mun === cod) vinc.add(r.id) }
         const areaMun = g ? Math.round(areaHa(g)) : null
-        return json(response, 200, { ...f, territorio: { ...f.territorio, areaMunicipioHa: areaMun, carSobreMunicipioPct: areaMun ? Math.round(f.territorio.areaCarHa / areaMun * 1000) / 10 : null }, imoveisVinculados: vinc.size })
+        const pan = panorama().find(x => x.codigoIbge === cod)
+        return json(response, 200, { ...f, territorio: { ...f.territorio, areaMunicipioHa: areaMun, carSobreMunicipioPct: areaMun ? Math.round(f.territorio.areaCarHa / areaMun * 1000) / 10 : null }, imoveisVinculados: vinc.size,
+          producaoAnoBomT: pan?.potencialAnoBomT || 0, estrutura: estruturaDe(cod), fontesEstrutura: pre.estrutura?.fontes || null })
       }
       if (parte === 'culturas') return json(response, 200, await fontes.culturas(cod), { 'Cache-Control': 'private, max-age=3600' })
       if (parte === 'embargos') return json(response, 200, await fontes.embargos(cod), { 'Cache-Control': 'private, max-age=1800' })

@@ -49,8 +49,13 @@ Painel à direita (gaveta de baixo no celular) que carrega por seções, cada um
 | Crédito rural e garantias | `…/credito` | BCB, Matriz de Dados do Crédito Rural (OData do SICOR): custeio por safra e cultura | `data/geo/municipios-credito.json` |
 | Chuva | `…/chuva` | NASA POWER: chuva diária estimada (MERRA-2/GEOS-IT) e normal 2001–2025 | na hora, cache de 6 horas |
 | Relevo | `…/relevo` | OpenTopoData, SRTM 30 m: altitude e declividade (classes da Embrapa) | `data/geo/municipios-relevo.json` |
+| Valor da terra nua | `/api/geo/municipio/:codigo` | Receita Federal, VTN do ITR 2026 (ou 2025), R$/ha por aptidão; 199 municípios do RS informaram | `data/geo/municipios-estrutura.json` |
+| Armazenagem e logística | `/api/geo/municipio/:codigo` | CONAB (SICARM): capacidade por dono e quanto da safra cabe; DNIT/ANTAQ: distância ao porto de Rio Grande, ao porto ou terminal mais perto e ao trilho | `data/geo/municipios-estrutura.json` |
+| Estrutura e pecuária | `/api/geo/municipio/:codigo` | IBGE, Censo Agro 2017 (estabelecimentos, tratores, irrigação, armazém na fazenda, financiamento) e PPM (rebanhos e leite) | `data/geo/municipios-estrutura.json` |
 | Socioambiental | `/api/geo/municipio/:codigo` | INPE (PRODES, TI, UC), IBAMA e SICAR cruzados nos imóveis do CAR | da base, na hora |
 | Áreas embargadas | `…/embargos` | IBAMA, camada pública do PAMGIA (município inteiro; sem nome nem CPF/CNPJ) | na hora, cache de 12 horas |
+
+A camada **Armazéns** do mapa (tecla **A**, rota `/api/geo/armazens`) mostra as 2.761 unidades de empresas e cooperativas, com tamanho pela capacidade; armazéns de pessoa física entram só nos totais do município. O panorama ganhou as métricas **Armazém** (quanto da safra cabe nos armazéns) e **Terra** (VTN de lavoura boa). `municipios-estrutura.json` e `armazens-rs.json` são gerados por `scripts/geo-estrutura.mjs` (rodar de novo a cada ano, ou quando sair a tabela nova do VTN).
 
 Os arquivos `municipios-*.json` são gerados por `scripts/geo-municipios.mjs` (`--relevo` uma vez; `--credito` todo mês, para trazer os contratos novos). Garantias registradas (penhor, hipoteca, alienação fiduciária, CPR) não são públicas por imóvel; a ficha mostra o custeio do SICOR como o sinal público mais próximo e explica isso. A chuva é estimativa por satélite e modelo, não medida de pluviômetro: o portal do INMET recusa download automático.
 
