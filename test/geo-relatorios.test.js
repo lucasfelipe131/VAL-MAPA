@@ -170,3 +170,24 @@ test('ficha do município: hectares, porte, socioambiental e culturas do IBGE (f
   assert.match(chamadas[0], /apisidra\.ibge\.gov\.br\/values\/t\/5457\/n6\/4318903\//)
   await assert.rejects(chamar(geo, 'GET', '/api/geo/municipio/9999999'), e => e.statusCode === 404)
 })
+
+test('ampliação: estrutura do município (armazéns, VTN, censo) na ficha, no panorama e a camada de armazéns', async () => {
+  const { file, store } = montar()
+  await store.migrate()
+  // sem os arquivos gerados: ficha sem estrutura, camada indisponível
+  const sem = createGeoIntel({ dataFile: file, store, domainError })
+  assert.equal((await chamar(sem, 'GET', '/api/geo/municipio/4318903')).body.estrutura, null)
+  await assert.rejects(chamar(sem, 'GET', '/api/geo/armazens'), e => e.statusCode === 503)
+  // com os arquivos ao lado da base
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geo-estr-'))
+  fs.copyFileSync(file, path.join(dir, 'imoveis-teste.ndjson.gz'))
+  fs.writeFileSync(path.join(dir, 'municipios-estrutura.json'), JSON.stringify({ fontes: { armazens: 'CONAB' }, itens: { 4318903: { armazens: { unidades: 2, capacidadeT: 5000 }, vtn: { ano: 2026, lavouraBoa: 40000 } } } }))
+  fs.writeFileSync(path.join(dir, 'armazens-rs.json'), JSON.stringify({ fonte: 'CONAB', pontos: [[-28.4, -54.9, 3000, 'g', 'coop', 'Cooperativa X', '4318903']] }))
+  const geo = createGeoIntel({ dataDir: dir, store, domainError })
+  const f = (await chamar(geo, 'GET', '/api/geo/municipio/4318903')).body
+  assert.equal(f.estrutura.armazens.capacidadeT, 5000); assert.equal(f.fontesEstrutura.armazens, 'CONAB'); assert.ok(f.producaoAnoBomT > 0)
+  const p = (await chamar(geo, 'GET', '/api/geo/panorama')).body.itens[0]
+  assert.equal(p.armazemT, 5000); assert.equal(p.vtnLavouraBoa, 40000)
+  const a = await chamar(geo, 'GET', '/api/geo/armazens')
+  assert.equal(JSON.parse(a.raw).pontos[0][5], 'Cooperativa X')
+})
