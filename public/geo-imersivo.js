@@ -143,7 +143,7 @@ async function sugerir(texto) {
     const mun = document.getElementById('geo-mun')?.value || ''
     itens.push({ tipo: 'matricula', grupo: 'Matrícula', ico: ICO.doc, titulo: `Buscar a matrícula ${texto.trim()}`, sub: mun ? `no município de ${mun}` : 'em todo o estado · escolha o município no painel para precisar', numero: texto.trim(), mun })
   }
-  if (window.valPesquisa && (/\?\s*$/.test(texto) || texto.trim().split(/\s+/).length >= 5)) itens.unshift({ tipo: 'ia', grupo: 'VAL', ico: ICO.ia, titulo: `Perguntar ao VAL:“${texto.trim().slice(0, 90)}”`, sub: 'Cruza imóveis, produtores, empresas e municípios e marca no mapa (Q)', q: texto.trim() })
+  if (window.valPesquisa && (/\?\s*$/.test(texto) || texto.trim().split(/\s+/).length >= 5)) itens.unshift({ tipo: 'ia', grupo: 'VAL', ico: ICO.ia, titulo: `Perguntar à VAL:“${texto.trim().slice(0, 90)}”`, sub: 'Cruza imóveis, produtores, empresas e municípios e marca no mapa (Q)', q: texto.trim() })
   const nomeNaBase = !/\d/.test(texto) && n.replace(/[^a-z]/g, '').length >= 3
   if (nomeNaBase) itens.push({ tipo: 'carregando', grupo: 'Nome no registro do imóvel (CAR/SIGEF)', ico: ICO.terra, titulo: 'Procurando na base do RS…', sub: '' })
   mostrarSug(itens)
