@@ -287,8 +287,8 @@ function montarBotaoIA() {
   const caixa = document.querySelector('.im-busca')
   if (!caixa || caixa.querySelector('.im-ia-btn')) return
   const b = document.createElement('button')
-  b.type = 'button'; b.className = 'im-ia-btn'; b.title = 'Pesquisa com IA (Q)'; b.setAttribute('aria-label', 'Abrir a pesquisa com IA')
-  b.innerHTML = `${ico('ia')}<span>IA</span>`
+  b.type = 'button'; b.className = 'im-ia-btn'; b.title = 'VAL: pergunte à base (Q)'; b.setAttribute('aria-label', 'Abrir o VAL')
+  b.innerHTML = `${ico('ia')}<span>VAL</span>`
   b.onclick = () => abrirIA()
   caixa.querySelector('kbd')?.before(b)
 }
@@ -296,16 +296,16 @@ function gavetaIA() {
   let el = document.getElementById('im-ia')
   if (el) return el
   el = document.createElement('aside')
-  el.id = 'im-ia'; el.className = 'im-fm im-ia'; el.hidden = true; el.setAttribute('aria-label', 'Pesquisa com IA')
+  el.id = 'im-ia'; el.className = 'im-fm im-ia'; el.hidden = true; el.setAttribute('aria-label', 'VAL')
   el.innerHTML = `
-    <header class="im-fm-topo"><div><span>Pesquisa com IA</span><h2>Pergunte à base</h2></div><button type="button" class="im-fm-x" data-ia-fechar title="Fechar (Esc)" aria-label="Fechar a pesquisa com IA">${ico('fechar')}</button></header>
+    <header class="im-fm-topo"><div><span>VAL</span><h2>Pergunte à base</h2></div><button type="button" class="im-fm-x" data-ia-fechar title="Fechar (Esc)" aria-label="Fechar o VAL">${ico('fechar')}</button></header>
     <div class="ia-aviso" id="ia-aviso" hidden></div>
     <div class="ia-conversa" id="ia-conversa" aria-live="polite"></div>
     <form class="ia-form" id="ia-form">
       <textarea id="ia-q" rows="2" maxlength="2000" placeholder="Pergunte sobre produtores, áreas, empresas ou municípios do RS" aria-label="Sua pergunta"></textarea>
       <button type="submit" class="btn small primary" id="ia-enviar">Perguntar</button>
     </form>
-    <p class="ia-rodape"><span>A IA consulta só a base do Geomap. Nomes de donos são pistas de cadastros públicos.</span><button type="button" data-ia-limpar>Nova conversa</button></p>`
+    <p class="ia-rodape"><span>O VAL consulta só a base do Geomap. Nomes de donos são pistas de cadastros públicos.</span><button type="button" data-ia-limpar>Nova conversa</button></p>`
   document.getElementById('view-map').append(el)
   L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el)
   const q = el.querySelector('#ia-q')
@@ -328,7 +328,7 @@ async function abrirIA() {
   if (!P.ia.status) {
     try { P.ia.status = await V.api('/api/geo/ia') } catch (e) { P.ia.status = { disponivel: false, motivo: e.message } }
     const aviso = document.getElementById('ia-aviso')
-    if (aviso && !P.ia.status.disponivel) { aviso.hidden = false; aviso.innerHTML = `<b>IA desligada neste servidor</b><span>${esc(P.ia.status.motivo || '')} Quem administra o servidor cria a chave no console da Anthropic e põe na variável ANTHROPIC_API_KEY do Railway.</span>` }
+    if (aviso && !P.ia.status.disponivel) { aviso.hidden = false; aviso.innerHTML = `<b>VAL desligado neste servidor</b><span>${esc(P.ia.status.motivo || '')} Quem administra o servidor cria a chave no console da Anthropic e põe na variável ANTHROPIC_API_KEY do Railway.</span>` }
   }
 }
 function fecharIA() {
@@ -387,7 +387,7 @@ function desenharConversa() {
   const box = document.getElementById('ia-conversa'); if (!box) return
   const btn = document.getElementById('ia-enviar'); if (btn) { btn.disabled = P.ia.ocupado; btn.textContent = P.ia.ocupado ? 'Pesquisando…' : 'Perguntar' }
   if (!P.ia.conversa.length) {
-    box.innerHTML = `<div class="ia-vazio"><p>Pergunte em português. A IA cruza imóveis do CAR e do SIGEF, produtores da base, empresas do agro, dados dos municípios e a carteira do VAL, e marca no mapa o que citar.</p>
+    box.innerHTML = `<div class="ia-vazio"><p>Pergunte em português. O VAL cruza imóveis do CAR e do SIGEF, produtores da base, empresas do agro, dados dos municípios e a carteira do VAL, e marca no mapa o que citar.</p>
       <span>Experimente</span><div class="ia-exemplos">${EXEMPLOS.map(x => `<button type="button" data-ia-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`
     return
   }
